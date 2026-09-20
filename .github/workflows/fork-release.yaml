@@ -1,0 +1,128 @@
+name: Fork / Release
+
+# Builds the Android TV app and publishes it as a GitHub release with the APK attached.
+#
+# Create a release by pushing a tag (for example `v0.1.0`) or by running this workflow manually
+# with a version. Only the signed release build is published, never the debug build.
+# Signing is required; without the signing secrets the workflow fails on purpose.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the "v" prefix (for example 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  # Optional signing configuration. Configure these repository secrets to publish a signed
+  # release APK that can be installed over previous builds:
+  #   KEYSTORE          base64 encoded keystore file
+  #   KEYSTORE_PASSWORD keystore password
+  #   KEY_ALIAS         signing key alias
+  #   KEY_PASSWORD      signing key password
+  KEYSTORE_BASE64: ${{ secrets.KEYSTORE }}
+  KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+  KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+  KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version-file: .tools-versions
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo "::error::Unable to determine the version to build"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Decode keystore
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::The KEYSTORE secret is required to publish release builds"
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/keystore.jks"
+
+      - name: Assemble release APK
+        run: |
+          ./gradlew :app:assembleRelease \
+            "-Pjellyfin.version=${{ steps.version.outputs.version }}" \
+            -Pkeystore.file="$RUNNER_TEMP/keystore.jks" \
+            -Pkeystore.password="$KEYSTORE_PASSWORD" \
+            -Psigning.key.alias="$KEY_ALIAS" \
+            -Psigning.key.password="$KEY_PASSWORD"
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p build/fork-release
+          find app/build/outputs/apk/release -name '*.apk' -exec cp {} build/fork-release/ \;
+          ls -la build/fork-release
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v$VERSION"
+
+          NOTES=$(cat <<EOF
+          Automated build of Jellykulik for Android TV (Jellyfin for Android TV fork).
+
+          Version: \`$VERSION\`
+          Commit: \`$GITHUB_SHA\`
+
+          ### Downloads
+
+          | APK | Description |
+          | --- | --- |
+          | \`jellyfin-androidtv-v$VERSION-release.apk\` | Signed release build |
+
+          This is a release build signed with the fork's signing key, so it updates in place.
+          EOF
+          )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes "$NOTES"
+
+            # Drop assets from earlier runs so only the current build remains.
+            for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name'); do
+              gh release delete-asset "$TAG" "$asset" --yes
+            done
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "$NOTES" \
+              --target "$GITHUB_SHA"
+          fi
+
+          gh release upload "$TAG" build/fork-release/*.apk --clobber
