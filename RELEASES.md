@@ -76,6 +76,20 @@ git push fork --delete backup/before-upstream-merge
 You can also run the workflow manually from the **Actions** tab (*Fork / Release* → *Run workflow*)
 and provide a version number.
 
+## Release notes
+
+The notes are generated from the git history, so there is nothing to write by hand:
+
+* **Changes** — the fork's own commits since the previous release (`--first-parent`, so the commits
+  pulled in from upstream are not repeated here).
+* **Upstream changes included** — the commits the merges brought in. For a merge commit `M` created
+  by `git merge upstream/master`, those are exactly `M^1..M^2`, because the fork is the first parent
+  and upstream the second.
+
+The previous release is taken from `gh release list`, not from `git tag`: the clone also carries
+every upstream tag (`v0.19.x`, `v0.20.0-beta.x`, …) and those sort higher than the fork's `v0.1.x`
+line. This is why the checkout uses `fetch-depth: 0` — tags and history have to be present.
+
 ## What gets published
 
 Each release contains one signed APK, and never a debug build:
