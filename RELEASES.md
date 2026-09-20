@@ -4,6 +4,57 @@ This repository is a fork of [jellyfin/jellyfin-androidtv](https://github.com/je
 It publishes its own APK builds through GitHub releases using the
 [`Fork / Release`](.github/workflows/fork-release.yaml) workflow.
 
+## Remotes
+
+| Remote     | Points at                                       |
+| ---------- | ----------------------------------------------- |
+| `fork`     | `michalkulik/jellyfin-androidtv` (this fork)     |
+| `upstream` | `jellyfin/jellyfin-androidtv` (the original)     |
+
+`master` tracks `fork/master`, so a plain `git push` goes to the fork.
+
+## Keeping the fork up to date with upstream
+
+The fork keeps its own commits (the Jellykulik branding, the release workflow) on `master` and pulls
+in upstream changes with a **merge commit**. Rebasing is deliberately avoided: it rewrites already
+published commits, invalidates the release tags and would need a force-push over the fork history.
+
+The whole procedure is scripted:
+
+```powershell
+# look first, change nothing
+.\scripts\sync-upstream.ps1 -DryRun
+
+# then actually merge
+.\scripts\sync-upstream.ps1
+```
+
+The script refuses to run with uncommitted changes, fetches `upstream`, prints how far the fork has
+diverged, lists the incoming commits, warns about files that changed on **both** sides (the usual
+source of conflicts), creates a `backup/before-upstream-merge` branch, merges with `--no-ff` and
+finally checks that the Jellykulik branding survived. It never pushes.
+
+Afterwards build and push by hand:
+
+```powershell
+.\gradlew.bat :app:compileDebugKotlin
+git push fork master
+```
+
+If the merge went wrong, undo it and start over:
+
+```powershell
+git merge --abort                                  # during the merge
+git reset --hard backup/before-upstream-merge      # after the merge commit
+```
+
+Once you are happy with the result, drop the safety net:
+
+```powershell
+git branch -D backup/before-upstream-merge
+git push fork --delete backup/before-upstream-merge
+```
+
 ## Publishing a new version
 
 1. Make sure your changes are committed and pushed to `master`:
