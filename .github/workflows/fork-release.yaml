@@ -39,6 +39,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the changelog is built from the commits since the previous tag.
+          fetch-depth: 0
       - name: Setup Java
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -95,11 +98,50 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="v$VERSION"
 
+          # Changelog: the fork's own commits since the previous release tag, plus the upstream
+          # commits pulled in by merges, grouped so it is obvious what came from where.
+          #
+          # The previous tag must come from THIS repository's releases: the clone also contains all
+          # upstream tags (v0.19.x, v0.20.0-beta.x, ...) because the fork merges upstream, and those
+          # sort higher than the fork's own v0.1.x line.
+          PREVIOUS_TAG=$(gh release list --limit 20 --json tagName --jq '.[].tagName' \
+            | grep -v "^$TAG$" | head -1 || true)
+          if [ -z "$PREVIOUS_TAG" ]; then
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 "$GITHUB_SHA^" 2>/dev/null || true)
+          fi
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            RANGE="$PREVIOUS_TAG..$GITHUB_SHA"
+          else
+            RANGE="$GITHUB_SHA"
+          fi
+
+          # `--first-parent` keeps only the fork's own commits on the mainline, so the upstream
+          # commits pulled in by merges are not repeated in both sections.
+          CHANGELOG=$(git log --no-merges --first-parent --pretty='- %s' "$RANGE" || true)
+          [ -z "$CHANGELOG" ] && CHANGELOG="- No changes"
+
+          # A merge commit created by `git merge upstream/master` has our branch as its first parent
+          # and the upstream branch as its second, so `M^1..M^2` is exactly what the merge brought in.
+          UPSTREAM_NOTES=""
+          for merge in $(git rev-list --merges "$RANGE"); do
+            brought_in=$(git log --no-merges --pretty='- %s' "$merge^1..$merge^2" 2>/dev/null || true)
+            if [ -n "$brought_in" ]; then
+              UPSTREAM_NOTES="$UPSTREAM_NOTES$brought_in
+          "
+            fi
+          done
+          UPSTREAM_NOTES=$(printf '%s' "$UPSTREAM_NOTES" | sort -u | sed '/^$/d')
+
           NOTES=$(cat <<EOF
           Automated build of Jellykulik for Android TV (Jellyfin for Android TV fork).
 
           Version: \`$VERSION\`
           Commit: \`$GITHUB_SHA\`
+
+          ### Changes
+
+          $CHANGELOG
 
           ### Downloads
 
@@ -110,6 +152,14 @@ jobs:
           This is a release build signed with the fork's signing key, so it updates in place.
           EOF
           )
+
+          if [ -n "$UPSTREAM_NOTES" ]; then
+            NOTES="$NOTES
+
+          ### Upstream changes included
+
+          $UPSTREAM_NOTES"
+          fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --notes "$NOTES"
