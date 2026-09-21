@@ -6,9 +6,12 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.work.OneTimeWorkRequestBuilder
@@ -29,6 +32,10 @@ import org.jellyfin.androidtv.ui.navigation.NavigationRepository
 import org.jellyfin.androidtv.ui.screensaver.InAppScreensaver
 import org.jellyfin.androidtv.ui.settings.compat.MainActivitySettings
 import org.jellyfin.androidtv.ui.startup.StartupActivity
+import org.jellyfin.androidtv.update.UpdateDialog
+import org.jellyfin.androidtv.update.UpdateManager
+import org.jellyfin.androidtv.update.UpdatePromptController
+import org.jellyfin.androidtv.update.UpdateState
 import org.jellyfin.androidtv.util.applyTheme
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -40,6 +47,11 @@ class MainActivity : FragmentActivity() {
 	private val userRepository by inject<UserRepository>()
 	private val interactionTrackerViewModel by viewModel<InteractionTrackerViewModel>()
 	private val workManager by inject<WorkManager>()
+	private val updateManager by inject<UpdateManager>()
+	private val updatePromptController by inject<UpdatePromptController>()
+
+	/** Whether the automatic prompt was already offered for this activity instance. */
+	private var updatePromptOffered = false
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		applyTheme()
@@ -62,6 +74,19 @@ class MainActivity : FragmentActivity() {
 				interactionTrackerViewModel.notifyInteraction(canCancel = false, userInitiated = false)
 			}.launchIn(lifecycleScope)
 
+		// The library screen is ready once this activity is shown. The check started by the
+		// application may still be in flight, so the state is observed instead of read once.
+		lifecycleScope.launch { updateManager.check() }
+		lifecycleScope.launch {
+			updateManager.state.collect { state ->
+				if (updatePromptOffered) return@collect
+				if (state !is UpdateState.Available || !updateManager.shouldPrompt()) return@collect
+
+				updatePromptOffered = true
+				updatePromptController.show()
+			}
+		}
+
 		setContent {
 			JellyfinTheme {
 				ProvideLocalInteractionTracker(
@@ -73,6 +98,7 @@ class MainActivity : FragmentActivity() {
 					)
 					InAppScreensaver()
 					MainActivitySettings()
+					UpdatePrompt(updatePromptController)
 				}
 			}
 		}
@@ -135,4 +161,16 @@ class MainActivity : FragmentActivity() {
 
 	override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean =
 		onKeyEvent(keyCode, event) || super.onKeyUp(keyCode, event)
+}
+
+/**
+ * Shows the update dialog while [controller] asks for it, so both the automatic check and the
+ * About screen can open the same prompt.
+ */
+@Composable
+private fun UpdatePrompt(controller: UpdatePromptController) {
+	val visible by controller.visible.collectAsStateWithLifecycle()
+	if (visible) {
+		UpdateDialog(onDismissRequest = { controller.hide() })
+	}
 }

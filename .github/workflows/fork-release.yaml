@@ -91,6 +91,50 @@ jobs:
           find app/build/outputs/apk/release -name '*.apk' -exec cp {} build/fork-release/ \;
           ls -la build/fork-release
 
+      # The in-app updater reads latest.json from the newest release through
+      # https://github.com/<owner>/<repo>/releases/latest/download/latest.json and compares versionCode
+      # with BuildConfig.VERSION_CODE. The APK name is globbed so it always matches what Gradle wrote.
+      - name: Write update manifest
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+
+          # Same formula as buildSrc/VersionUtils.getVersionCode: MA.MI.PA-PR -> MAMIPAPR,
+          # with the pre-release number defaulting to 99.
+          CORE="${VERSION%%-*}"
+          MAJOR=$(echo "$CORE" | cut -d '.' -f 1)
+          MINOR=$(echo "$CORE" | cut -d '.' -f 2)
+          PATCH=$(echo "$CORE" | cut -d '.' -f 3)
+          PRE=$(echo "$VERSION" | sed -n 's/^[^-]*-[^.]*\.\([0-9]\{1,\}\)$/\1/p')
+          VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + ${PRE:-99} ))
+
+          APK=$(find build/fork-release -name '*.apk' -print -quit)
+          if [ -z "$APK" ]; then
+            echo "::error::No release APK found"
+            exit 1
+          fi
+
+          NAME=$(basename "$APK")
+          SIZE=$(stat -c '%s' "$APK")
+          SHA=$(sha256sum "$APK" | cut -d ' ' -f 1)
+
+          cat > build/fork-release/latest.json <<EOF
+          {
+            "version": "$VERSION",
+            "versionCode": $VERSION_CODE,
+            "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "variants": {
+              "tv": {
+                "url": "https://github.com/$REPO/releases/download/v$VERSION/$NAME",
+                "size": $SIZE,
+                "sha256": "$SHA"
+              }
+            }
+          }
+          EOF
+
+          cat build/fork-release/latest.json
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -148,7 +192,8 @@ jobs:
           | APK | Description |
           | --- | --- |
           | \`jellyfin-androidtv-v$VERSION-release.apk\` | Signed release build |
-
+          `latest.json` describes the build and is read by the in-app updater, so installed apps
+          offer this version without any further setup.
           This is a release build signed with the fork's signing key, so it updates in place.
           EOF
           )
@@ -175,4 +220,4 @@ jobs:
               --target "$GITHUB_SHA"
           fi
 
-          gh release upload "$TAG" build/fork-release/*.apk --clobber
+          gh release upload "$TAG" build/fork-release/*.apk build/fork-release/latest.json --clobber

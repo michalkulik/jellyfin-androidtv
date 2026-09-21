@@ -17,6 +17,10 @@
     <!-- Search permissions (voice to text) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- The in-app updater hands a downloaded package to the system installer, the user has to
+         allow this per app on Android 8+ -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Device feature requirements -->
     <uses-feature
         android:name="android.software.leanback"
@@ -39,6 +43,12 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="video/*" />
+        </intent>
+
+        <!-- Used by the in-app updater to detect the system package installer -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.android.package-archive" />
         </intent>
     </queries>
 
@@ -97,6 +107,26 @@
             android:authorities="${applicationId}.integration.provider.ImageProvider"
             android:exported="true"
             android:initOrder="10" />
+
+        <!-- Shares a downloaded update package with the system package installer -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Removes the downloaded package once the new version replaced the old one -->
+        <receiver
+            android:name=".update.UpdatePackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Authentication -->
         <activity

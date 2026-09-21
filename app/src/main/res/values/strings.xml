@@ -282,6 +282,22 @@
     <string name="pref_theme_dark">Dark (Default)</string>
     <string name="pref_theme_emerald">Classic emerald</string>
     <string name="pref_about_title">About</string>
+
+    <!-- In-app updater -->
+    <string name="update_check_for_updates">Check for updates</string>
+    <string name="update_check_up_to_date">You are using the newest version</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_check_failed">Could not check for updates</string>
+    <string name="update_available_title">New app version</string>
+    <string name="update_available_message">Version %1$s is available, you have %2$s.</string>
+    <string name="update_button_download">Download</string>
+    <string name="update_button_install">Install</string>
+    <string name="update_button_retry">Retry</string>
+    <string name="update_button_later">Later</string>
+    <string name="update_failed_message">The update could not be downloaded (%1$s).</string>
+    <string name="update_downloading_progress">%1$d%%</string>
+    <string name="update_install_permission_message">Allow this app to install unknown apps, then try again.</string>
+    <string name="update_debug_no_install">Debug builds cannot install the release package.</string>
     <string name="pref_external_player">Use external player</string>
     <string name="pref_next_up_timeout_summary">How long to wait before playing the next item</string>
     <string name="pref_next_up_timeout_title">Next up timer duration</string>

@@ -2,6 +2,8 @@ package org.jellyfin.androidtv.preference
 
 import android.content.Context
 import org.jellyfin.preference.booleanPreference
+import org.jellyfin.preference.intPreference
+import org.jellyfin.preference.longPreference
 import org.jellyfin.preference.store.SharedPreferenceStore
 import org.jellyfin.preference.stringPreference
 
@@ -67,5 +69,27 @@ class SystemPreferences(context: Context) : SharedPreferenceStore(
 		 * Whether to disable the "UI mode" warning that shows when using the app on non TV devices.
 		 */
 		val disableUiModeWarning = booleanPreference("disable_ui_mode_warning", false)
+
+		// In-app updater
+		/**
+		 * Timestamp of the last update manifest download, used to throttle the automatic checks.
+		 */
+		val updateLastCheck = longPreference("update_last_check", 0L)
+
+		/**
+		 * Timestamp until the new version prompt stays hidden after the user chose "later".
+		 */
+		val updateSnoozeUntil = longPreference("update_snooze_until", 0L)
+
+		/**
+		 * Version code the snooze was given for. A newer version is offered again immediately.
+		 */
+		val updateSnoozedVersionCode = intPreference("update_snoozed_version_code", 0)
+
+		/**
+		 * Overrides the update manifest location, only used to test the updater against a local
+		 * manifest. Empty means the releases of the fork.
+		 */
+		val updateManifestUrl = stringPreference("update_manifest_url", "")
 	}
 }

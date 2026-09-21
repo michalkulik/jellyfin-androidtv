@@ -197,7 +197,23 @@
     <string name="pref_app_theme">Motyw aplikacji</string>
     <string name="watch_now">Oglądaj teraz</string>
     <string name="pref_next_up_timeout_summary">Jak długo należy czekać przed odtworzeniem następnej pozycji</string>
-    <string name="pref_about_title">O</string>
+    <string name="pref_about_title">O aplikacji</string>
+
+    <!-- In-app updater -->
+    <string name="update_check_for_updates">Sprawdź aktualizacje</string>
+    <string name="update_check_up_to_date">Używasz najnowszej wersji</string>
+    <string name="update_checking">Sprawdzanie aktualizacji…</string>
+    <string name="update_check_failed">Nie udało się sprawdzić aktualizacji</string>
+    <string name="update_available_title">Nowa wersja aplikacji</string>
+    <string name="update_available_message">Dostępna jest wersja %1$s, używasz %2$s.</string>
+    <string name="update_button_download">Pobierz</string>
+    <string name="update_button_install">Zainstaluj</string>
+    <string name="update_button_retry">Ponów</string>
+    <string name="update_button_later">Później</string>
+    <string name="update_failed_message">Nie udało się pobrać aktualizacji (%1$s).</string>
+    <string name="update_downloading_progress">%1$d%%</string>
+    <string name="update_install_permission_message">Zezwól tej aplikacji na instalowanie nieznanych aplikacji i spróbuj ponownie.</string>
+    <string name="update_debug_no_install">Kompie debug nie mogą instalować wersji wydania.</string>
     <string name="pref_theme_emerald">Klasyczny szmaragd</string>
     <string name="pref_theme_dark">Ciemny (Domyślny)</string>
     <string name="lbl_my_media">Moje media</string>
