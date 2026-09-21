@@ -82,6 +82,7 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	private var currentItem: BaseRowItem? = null
 	private var currentRow: ListRow? = null
 	private var justLoaded = true
+	private var rowsLoading = false
 
 	// Special rows
 	private val notificationsRow by lazy { NotificationsHomeFragmentRow(lifecycleScope, notificationsRepository) }
@@ -92,60 +93,7 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 
 		adapter = MutableObjectAdapter<Row>(PositionableListRowPresenter())
 
-		lifecycleScope.launch(Dispatchers.IO) {
-			val currentUser = withTimeout(30.seconds) {
-				userRepository.currentUser.filterNotNull().first()
-			}
-
-			// Start out with default sections
-			val homesections = userSettingPreferences.activeHomesections
-
-			// Make sure the rows are empty
-			val rows = mutableListOf<HomeFragmentRow>()
-
-			// Check for coroutine cancellation
-			if (!isActive) return@launch
-
-			// Actually add the sections
-			for (section in homesections) when (section) {
-				HomeSectionType.LATEST_MEDIA -> rows.add(helper.loadRecentlyAdded(userViewsRepository.views.first()))
-				HomeSectionType.LIBRARY_TILES_SMALL -> rows.add(HomeFragmentViewsRow(small = false))
-				HomeSectionType.LIBRARY_BUTTONS -> rows.add(HomeFragmentViewsRow(small = true))
-				HomeSectionType.RESUME -> rows.add(helper.loadResumeVideo())
-				HomeSectionType.RESUME_AUDIO -> rows.add(helper.loadResumeAudio())
-				HomeSectionType.RESUME_BOOK -> Unit // Books are not (yet) supported
-				HomeSectionType.ACTIVE_RECORDINGS -> rows.add(helper.loadLatestLiveTvRecordings())
-				HomeSectionType.NEXT_UP -> rows.add(helper.loadNextUp())
-				HomeSectionType.LIVE_TV -> if (currentUser.policy?.enableLiveTvAccess == true) {
-					rows.add(HomeFragmentLiveTVRow(requireActivity(), userRepository))
-					rows.add(helper.loadOnNow())
-				}
-
-				HomeSectionType.NONE -> Unit
-			}
-
-			// Add sections to layout
-			withContext(Dispatchers.Main) {
-				val cardPresenter = CardPresenter()
-
-				// Add rows in order
-				notificationsRow.addToRowsAdapter(requireContext(), cardPresenter, adapter as MutableObjectAdapter<Row>)
-				nowPlaying.addToRowsAdapter(requireContext(), cardPresenter, adapter as MutableObjectAdapter<Row>)
-				for (row in rows) row.addToRowsAdapter(requireContext(), cardPresenter, adapter as MutableObjectAdapter<Row>)
-
-				// Wire up Live TV sibling rows so the On Now row removes the buttons row when empty
-				@Suppress("UNCHECKED_CAST")
-				val rowsAdapter = adapter as MutableObjectAdapter<Row>
-				for (i in 0 until rowsAdapter.size()) {
-					val listRow = rowsAdapter.get(i) as? ListRow ?: continue
-					val itemAdapter = listRow.adapter as? ItemRowAdapter ?: continue
-					if (itemAdapter.queryType == QueryType.LiveTvProgram && i > 0) {
-						val previousRow = rowsAdapter.get(i - 1)
-						if (previousRow != null) itemAdapter.setSiblingRow(previousRow)
-					}
-				}
-			}
-		}
+		loadRows()
 
 		onItemViewClickedListener = CompositeClickedListener().apply {
 			registerListener(ItemViewClickedListener())
@@ -181,6 +129,78 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		mediaManager.addAudioEventListener(this)
 	}
 
+	/**
+	 * Builds and shows the home rows. Safe to call more than once: when the initial load did not
+	 * finish (for example the session was (re)created while the app was in the background) the rows
+	 * are rebuilt so the home screen does not stay empty until the activity is recreated.
+	 */
+	private fun loadRows() {
+		if (rowsLoading) return
+		rowsLoading = true
+
+		lifecycleScope.launch(Dispatchers.IO) {
+			try {
+				val currentUser = withTimeout(30.seconds) {
+					userRepository.currentUser.filterNotNull().first()
+				}
+
+				// Start out with default sections
+				val homesections = userSettingPreferences.activeHomesections
+
+				// Make sure the rows are empty
+				val rows = mutableListOf<HomeFragmentRow>()
+
+				// Check for coroutine cancellation
+				if (!isActive) return@launch
+
+				// Actually add the sections
+				for (section in homesections) when (section) {
+					HomeSectionType.LATEST_MEDIA -> rows.add(helper.loadRecentlyAdded(userViewsRepository.views.first()))
+					HomeSectionType.LIBRARY_TILES_SMALL -> rows.add(HomeFragmentViewsRow(small = false))
+					HomeSectionType.LIBRARY_BUTTONS -> rows.add(HomeFragmentViewsRow(small = true))
+					HomeSectionType.RESUME -> rows.add(helper.loadResumeVideo())
+					HomeSectionType.RESUME_AUDIO -> rows.add(helper.loadResumeAudio())
+					HomeSectionType.RESUME_BOOK -> Unit // Books are not (yet) supported
+					HomeSectionType.ACTIVE_RECORDINGS -> rows.add(helper.loadLatestLiveTvRecordings())
+					HomeSectionType.NEXT_UP -> rows.add(helper.loadNextUp())
+					HomeSectionType.LIVE_TV -> if (currentUser.policy?.enableLiveTvAccess == true) {
+						rows.add(HomeFragmentLiveTVRow(requireActivity(), userRepository))
+						rows.add(helper.loadOnNow())
+					}
+
+					HomeSectionType.NONE -> Unit
+				}
+
+				// Add sections to layout
+				withContext(Dispatchers.Main) {
+					@Suppress("UNCHECKED_CAST")
+					val rowsAdapter = adapter as MutableObjectAdapter<Row>
+					val cardPresenter = CardPresenter()
+
+					// Rebuild from scratch so a retry does not append duplicate rows
+					rowsAdapter.clear()
+
+					// Add rows in order
+					notificationsRow.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
+					nowPlaying.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
+					for (row in rows) row.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
+
+					// Wire up Live TV sibling rows so the On Now row removes the buttons row when empty
+					for (i in 0 until rowsAdapter.size()) {
+						val listRow = rowsAdapter.get(i) as? ListRow ?: continue
+						val itemAdapter = listRow.adapter as? ItemRowAdapter ?: continue
+						if (itemAdapter.queryType == QueryType.LiveTvProgram && i > 0) {
+							val previousRow = rowsAdapter.get(i - 1)
+							if (previousRow != null) itemAdapter.setSiblingRow(previousRow)
+						}
+					}
+				}
+			} finally {
+				rowsLoading = false
+			}
+		}
+	}
+
 	override fun onKey(v: View?, keyCode: Int, event: KeyEvent?): Boolean {
 		if (event?.action != KeyEvent.ACTION_UP) return false
 		return keyProcessor.handleKey(keyCode, currentItem, activity)
@@ -203,6 +223,11 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		} else {
 			justLoaded = false
 		}
+
+		// The initial load may not have finished, or produced no rows at all (for example the session
+		// was (re)created while the app was in the background). Retry it so the user does not have to
+		// leave and re-enter the app to get the libraries back.
+		if (adapter.size() == 0) loadRows()
 
 		// Update audio queue
 		Timber.i("Updating audio queue in HomeFragment (onResume)")

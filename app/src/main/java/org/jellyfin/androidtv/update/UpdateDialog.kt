@@ -65,6 +65,7 @@ fun UpdateDialog(
 			Text(
 				text = stringResource(R.string.update_available_title),
 				fontSize = Tokens.Typography.typographyFontSizeXl.value.sp,
+				color = Tokens.Color.colorWhite,
 			)
 
 			val message = when (state) {
@@ -75,12 +76,13 @@ fun UpdateDialog(
 					BuildConfig.VERSION_NAME,
 				)
 			}
-			Text(text = message)
+			Text(text = message, color = Tokens.Color.colorWhite)
 
 			val notes = release?.notes
 			if (!notes.isNullOrBlank()) {
 				Text(
 					text = notes,
+					color = Tokens.Color.colorWhite,
 					modifier = Modifier
 						.fillMaxWidth()
 						.verticalScroll(rememberScrollState()),
@@ -90,7 +92,7 @@ fun UpdateDialog(
 			val downloading = state as? UpdateState.Downloading
 			if (downloading != null) {
 				DownloadProgressBar(progress = downloading.progress)
-				Text(text = stringResource(R.string.update_downloading_progress, downloading.progress))
+				Text(text = stringResource(R.string.update_downloading_progress, downloading.progress), color = Tokens.Color.colorWhite)
 			}
 
 			UpdateDialogActions(

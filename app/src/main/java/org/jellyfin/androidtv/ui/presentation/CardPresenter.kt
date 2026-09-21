@@ -290,7 +290,10 @@ private fun CardViewHolderContent(
 	val localDensity = LocalDensity.current
 
 	val title = remember(item, context) { item?.getCardName(context) }
-	val subtitle = remember(item, context) { item?.getSubText(context) }
+	// The card label shows the name only, so the official rating (e.g. "PL-16") is dropped.
+	val subtitle = remember(item, context) {
+		item?.getSubText(context)?.takeIf { text -> text != item?.baseItem?.officialRating }
+	}
 	val displayConfig = remember(item, imageType, uniformAspect) { item?.getDisplayConfig(imageType, uniformAspect) }
 	if (item == null || displayConfig == null) return
 
