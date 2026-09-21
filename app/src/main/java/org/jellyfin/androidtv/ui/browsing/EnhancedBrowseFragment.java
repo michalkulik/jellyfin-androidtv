@@ -38,6 +38,8 @@ import org.jellyfin.androidtv.data.querying.GetUserViewsRequest;
 import org.jellyfin.androidtv.data.repository.CustomMessageRepository;
 import org.jellyfin.androidtv.data.service.BackgroundService;
 import org.jellyfin.androidtv.databinding.EnhancedDetailBrowseBinding;
+import org.jellyfin.androidtv.preference.LibraryPreferences;
+import org.jellyfin.androidtv.preference.PreferencesRepository;
 import org.jellyfin.androidtv.ui.GridButton;
 import org.jellyfin.androidtv.ui.itemhandling.BaseRowItem;
 import org.jellyfin.androidtv.ui.itemhandling.GridButtonBaseRowItem;
@@ -99,6 +101,7 @@ public class EnhancedBrowseFragment extends Fragment implements RowLoader, View.
     protected ListRow mCurrentRow;
 
     private Lazy<BackgroundService> backgroundService = inject(BackgroundService.class);
+    private final Lazy<PreferencesRepository> preferencesRepository = inject(PreferencesRepository.class);
     private Lazy<MarkdownRenderer> markdownRenderer = inject(MarkdownRenderer.class);
     private final Lazy<CustomMessageRepository> customMessageRepository = inject(CustomMessageRepository.class);
     private final Lazy<NavigationRepository> navigationRepository = inject(NavigationRepository.class);
@@ -158,6 +161,17 @@ public class EnhancedBrowseFragment extends Fragment implements RowLoader, View.
 
     protected void setupQueries(RowLoader rowLoader) {
         rowLoader.loadRows(mRows);
+    }
+
+    /**
+     * Whether card labels are enabled for the library that is being browsed.
+     */
+    private boolean getShowLabels() {
+        if (mFolder == null || mFolder.getDisplayPreferencesId() == null) return false;
+
+        LibraryPreferences libraryPreferences = preferencesRepository.getValue()
+                .getLibraryPreferences(mFolder.getDisplayPreferencesId());
+        return libraryPreferences.get(LibraryPreferences.Companion.getShowLabels());
     }
 
     protected void setupViews() {
@@ -225,7 +239,7 @@ public class EnhancedBrowseFragment extends Fragment implements RowLoader, View.
 
     public void loadRows(List<BrowseRowDef> rows) {
         mRowsAdapter = new MutableObjectAdapter<Row>(new PositionableListRowPresenter());
-        mCardPresenter = new CardPresenter(false, 140);
+        mCardPresenter = new CardPresenter(getShowLabels(), 140);
         ClassPresenterSelector ps = new ClassPresenterSelector();
         ps.addClassPresenter(GridButtonBaseRowItem.class, new GridButtonPresenter(155, 140));
         ps.addClassPresenter(BaseRowItem.class, mCardPresenter);

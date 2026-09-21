@@ -278,6 +278,8 @@
     <string name="lbl_start_favorites">Place favorites at beginning</string>
     <string name="lbl_image_type">Image type</string>
     <string name="lbl_image_size">Image size</string>
+    <string name="show_labels">Show labels</string>
+    <string name="show_labels_description">Show the name of an item underneath its image</string>
     <string name="lbl_my_media">My media</string>
     <string name="pref_theme_dark">Dark (Default)</string>
     <string name="pref_theme_emerald">Classic emerald</string>

@@ -73,6 +73,18 @@ fun SettingsLibrariesDisplayScreen(itemId: UUID, displayPreferencesId: String) {
 		}
 
 		item {
+			var showLabels by rememberPreference(libraryPreferences, LibraryPreferences.showLabels)
+
+			ListButton(
+				headingContent = { Text(stringResource(R.string.show_labels)) },
+				trailingContent = { Checkbox(checked = showLabels) },
+				captionContent = { Text(stringResource(R.string.show_labels_description)) },
+				onClick = { showLabels = !showLabels },
+				modifier = Modifier.focusKey("show_labels")
+			)
+		}
+
+		item {
 			var gridDirection by rememberPreference(libraryPreferences, LibraryPreferences.gridDirection)
 
 			ListButton(

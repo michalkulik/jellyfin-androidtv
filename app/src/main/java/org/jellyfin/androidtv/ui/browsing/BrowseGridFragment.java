@@ -86,6 +86,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     private CompositeSelectedListener mSelectedListener = new CompositeSelectedListener();
     private final Handler mHandler = new Handler();
     private int mCardHeight;
+    private int mCardImageHeight = 150;
     private BrowseRowDef mRowDef;
     private CardPresenter mCardPresenter;
 
@@ -93,6 +94,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     private PosterSize mPosterSizeSetting = PosterSize.MED;
     private ImageType mImageType = ImageType.POSTER;
     private GridDirection mGridDirection = GridDirection.HORIZONTAL;
+    private boolean mShowLabels = false;
     private boolean determiningPosterSize = false;
 
     private UUID mParentId;
@@ -126,6 +128,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     private final double CARD_SPACING_PCT = 1.0; // 100% expressed as relative to the padding_left/top, which depends on the mCardFocusScale and AspectRatio
     private final double CARD_SPACING_HORIZONTAL_BANNER_PCT = 0.5; // 50% allow horizontal card overlapping for banners, otherwise spacing is too large
     private final int VIEW_SELECT_UPDATE_DELAY = 250; // delay in ms until we update the top-row info for a selected item
+    private final int LABEL_BLOCK_HEIGHT = 44; // dp reserved below the image for the card label, so enabling labels does not push rows out of view
 
     private boolean mDirty = true; // CardHeight, RowDef or GridSize changed
 
@@ -149,6 +152,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         mPosterSizeSetting = libraryPreferences.get(LibraryPreferences.Companion.getPosterSize());
         mImageType = libraryPreferences.get(LibraryPreferences.Companion.getImageType());
         mGridDirection = libraryPreferences.get(LibraryPreferences.Companion.getGridDirection());
+        mShowLabels = libraryPreferences.get(LibraryPreferences.Companion.getShowLabels());
         mCardFocusScale = getResources().getFraction(R.fraction.card_scale_focus, 1, 1);
 
         if (mGridDirection.equals(GridDirection.VERTICAL))
@@ -455,7 +459,9 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             return;
         }
         double cardScaling = Math.max(mCardFocusScale - 1.0, 0.0);
+        int labelReserve = mShowLabels ? LABEL_BLOCK_HEIGHT : 0;
         int cardHeightInt = 100;
+        mCardImageHeight = 0;
         int spacingHorizontalInt = 0;
         int spacingVerticalInt = 0;
         int paddingLeftInt = 0;
@@ -493,7 +499,10 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             if (Math.abs(sumSize - mGridHeight) > 2) {
                 Timber.w("setAutoCardGridValues calculation delta > 2, something is off GridHeight <%s> sumSize <%s>!", mGridHeight, sumSize);
             }
-            int cardWidthInt = (int) getCardWidthBy(cardHeightInt, mImageType, mFolder);
+            // The label sits below the image, so the image has to be smaller to keep the row inside
+            // its budget.
+            mCardImageHeight = Math.max(cardHeightInt - labelReserve, 1);
+            int cardWidthInt = (int) getCardWidthBy(mCardImageHeight, mImageType, mFolder);
             paddingLeftInt = (int) Math.round((cardWidthInt * cardScaling) / 2.0);
             spacingHorizontalInt = Math.max((int) (Math.round(paddingLeftInt * CARD_SPACING_PCT)), 0); // round spacing
             if (mImageType == ImageType.BANNER) {
@@ -516,6 +525,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             // fix any rounding errors and make pixel perfect
             cardHeightInt = (int) Math.round(getCardHeightBy(cardWidth, mImageType, mFolder));
             int cardWidthInt = (int) getCardWidthBy(cardHeightInt, mImageType, mFolder);
+            mCardImageHeight = cardHeightInt;
             double cardPaddingLeftRightAdj = cardWidthInt * cardScaling;
             spacingHorizontalInt = Math.max((int) (Math.round((cardPaddingLeftRightAdj / 2.0) * CARD_SPACING_PCT)), 0); // round spacing
             if (mImageType == ImageType.BANNER) {
@@ -530,12 +540,16 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             }
             paddingTopInt = (int) Math.round((cardHeightInt * cardScaling) / 2.0);
             spacingVerticalInt = Math.max((int) (Math.round(paddingTopInt * CARD_SPACING_PCT)), 0); // round spacing
-            int cardsRow = (int) Math.round(((double) mGridHeight / (cardHeightInt + spacingVerticalInt)) + 0.5);
+            int cardsRow = (int) Math.round(((double) mGridHeight / (cardHeightInt + labelReserve + spacingVerticalInt)) + 0.5);
             mCardsScreenEst = numCols * cardsRow;
             mCardsScreenStride = numCols;
         }
 
         Timber.d("numCardsScreen <%s>", numCardsScreen);
+
+        if (mCardImageHeight <= 0) {
+            mCardImageHeight = Math.max(cardHeightInt - labelReserve, 1);
+        }
 
         if (mCardHeight != cardHeightInt) {
             mDirty = true;
@@ -573,13 +587,15 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         PosterSize posterSizeSetting = libraryPreferences.get(LibraryPreferences.Companion.getPosterSize());
         ImageType imageType = libraryPreferences.get(LibraryPreferences.Companion.getImageType());
         GridDirection gridDirection = libraryPreferences.get(LibraryPreferences.Companion.getGridDirection());
+        boolean showLabels = libraryPreferences.get(LibraryPreferences.Companion.getShowLabels());
 
-        if (mImageType != imageType || mPosterSizeSetting != posterSizeSetting || mGridDirection != gridDirection || mDirty) {
+        if (mImageType != imageType || mPosterSizeSetting != posterSizeSetting || mGridDirection != gridDirection || mShowLabels != showLabels || mDirty) {
             determiningPosterSize = true;
 
             mImageType = imageType;
             mPosterSizeSetting = posterSizeSetting;
             mGridDirection = gridDirection;
+            mShowLabels = showLabels;
 
             if (mGridDirection.equals(GridDirection.VERTICAL) && (mGridPresenter == null || !(mGridPresenter instanceof VerticalGridPresenter))) {
                 setGridPresenter(new VerticalGridPresenter(FocusHighlight.ZOOM_FACTOR_LARGE, false));
@@ -613,7 +629,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     }
 
     private void buildAdapter() {
-        mCardPresenter = new CardPresenter(false, mImageType, mCardHeight, true);
+        mCardPresenter = new CardPresenter(mShowLabels, mImageType, mCardImageHeight, true);
 
         Timber.d("buildAdapter cardHeight <%s> getCardWidthBy <%s> chunks <%s> type <%s>", mCardHeight, (int) getCardWidthBy(mCardHeight, mImageType, mFolder), mRowDef.getChunkSize(), mRowDef.getQueryType().toString());
 

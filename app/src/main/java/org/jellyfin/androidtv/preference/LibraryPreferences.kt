@@ -23,6 +23,11 @@ class LibraryPreferences(
 		val gridDirection = enumPreference("GridDirection", GridDirection.HORIZONTAL)
 		val enableSmartScreen = booleanPreference("SmartScreen", false)
 
+		/**
+		 * Show the name of an item underneath its image instead of only the image.
+		 */
+		val showLabels = booleanPreference("ShowLabels", false)
+
 		// Filters
 		val filterFavoritesOnly = booleanPreference("FilterFavoritesOnly", false)
 		val filterUnwatchedOnly = booleanPreference("FilterUnwatchedOnly", false)
