@@ -5,6 +5,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.R
@@ -228,9 +229,17 @@ fun ItemRowAdapter.retrieveAdditionalParts(api: ApiClient, query: GetAdditionalP
 
 fun ItemRowAdapter.retrieveUserViews(api: ApiClient, userViewsRepository: UserViewsRepository) {
 	ProcessLifecycleOwner.get().lifecycleScope.launch {
+		// The library rows are the backbone of the home screen, so a single failed request (for
+		// example right after the app was idle for a long time and the session had to be renewed)
+		// is retried instead of leaving the home without any library.
 		runCatching {
 			val response = withContext(Dispatchers.IO) {
-				api.userViewsApi.getUserViews().content
+				runCatching { api.userViewsApi.getUserViews().content }
+					.getOrElse { error ->
+						Timber.w(error, "Unable to retrieve the user views, retrying once")
+						delay(USER_VIEWS_RETRY_DELAY_MS)
+						api.userViewsApi.getUserViews().content
+					}
 			}
 
 			val filteredItems = response.items
@@ -248,6 +257,9 @@ fun ItemRowAdapter.retrieveUserViews(api: ApiClient, userViewsRepository: UserVi
 		)
 	}
 }
+
+/** How long to wait before the single retry of the user views request. */
+private const val USER_VIEWS_RETRY_DELAY_MS = 1_500L
 
 fun ItemRowAdapter.retrieveSeasons(api: ApiClient, query: GetSeasonsRequest) {
 	ProcessLifecycleOwner.get().lifecycleScope.launch {

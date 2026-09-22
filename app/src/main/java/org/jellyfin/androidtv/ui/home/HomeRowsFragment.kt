@@ -83,10 +83,16 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	private var currentRow: ListRow? = null
 	private var justLoaded = true
 	private var rowsLoading = false
+	private var libraryReloadAttempts = 0
 
 	// Special rows
 	private val notificationsRow by lazy { NotificationsHomeFragmentRow(lifecycleScope, notificationsRepository) }
 	private val nowPlaying by lazy { HomeFragmentNowPlayingRow(lifecycleScope, playbackManager, mediaManager) }
+
+	private companion object {
+		/** How often the home rows are rebuilt in a row while the libraries stay empty. */
+		private const val MAX_LIBRARY_RELOAD_ATTEMPTS = 3
+	}
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -224,14 +230,47 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 			justLoaded = false
 		}
 
-		// The initial load may not have finished, or produced no rows at all (for example the session
-		// was (re)created while the app was in the background). Retry it so the user does not have to
-		// leave and re-enter the app to get the libraries back.
-		if (adapter.size() == 0) loadRows()
+		// The initial load may not have finished, produced no rows at all or lost the libraries (for
+		// example the session was (re)created while the app was in the background, or the request
+		// failed because the app had been idle for a long time). Retry it so the user does not have
+		// to leave and re-enter the app to get the libraries back.
+		if (adapter.size() == 0 || libraryRowsEmpty()) loadRows()
 
 		// Update audio queue
 		Timber.i("Updating audio queue in HomeFragment (onResume)")
 		nowPlaying.update(requireContext(), adapter as MutableObjectAdapter<Row>)
+	}
+
+	/**
+	 * Whether the home should show library rows but has none with content. The rows are built by a
+	 * single request that is not retried, so an app that was idle for a long time (stale session,
+	 * failed request) can end up showing every other row while the libraries stay empty.
+	 *
+	 * The number of consecutive rebuild attempts is capped: an account without any library would
+	 * otherwise trigger a new request on every resume.
+	 */
+	private fun libraryRowsEmpty(): Boolean {
+		if (libraryReloadAttempts >= MAX_LIBRARY_RELOAD_ATTEMPTS) return false
+
+		val sections = userSettingPreferences.activeHomesections
+		val expectsLibraries = sections.any {
+			it == HomeSectionType.LIBRARY_TILES_SMALL || it == HomeSectionType.LIBRARY_BUTTONS
+		}
+		if (!expectsLibraries) return false
+
+		for (index in 0 until adapter.size()) {
+			val rowAdapter = (adapter[index] as? ListRow)?.adapter as? ItemRowAdapter ?: continue
+			if (rowAdapter.queryType != QueryType.Views) continue
+			if (rowAdapter.size() > 0) {
+				libraryReloadAttempts = 0
+				return false
+			}
+		}
+
+		// No library row with any item: rebuild the rows.
+		libraryReloadAttempts++
+		Timber.i("Home has no libraries, rebuilding the rows (attempt %d)", libraryReloadAttempts)
+		return true
 	}
 
 	override fun onQueueStatusChanged(hasQueue: Boolean) {

@@ -57,6 +57,7 @@ import org.jellyfin.androidtv.ui.browsing.BrowsingUtils;
 import org.jellyfin.androidtv.ui.itemhandling.BaseRowItem;
 import org.jellyfin.androidtv.ui.itemhandling.ItemLauncher;
 import org.jellyfin.androidtv.ui.itemhandling.ItemRowAdapter;
+import org.jellyfin.androidtv.ui.itemdetail.subtitle.SubtitleDownloadDialogHost;
 import org.jellyfin.androidtv.ui.livetv.TvManager;
 import org.jellyfin.androidtv.ui.navigation.Destinations;
 import org.jellyfin.androidtv.ui.navigation.NavigationRepository;
@@ -83,6 +84,7 @@ import org.jellyfin.androidtv.util.sdk.compat.JavaCompat;
 import org.jellyfin.sdk.model.api.BaseItemDto;
 import org.jellyfin.sdk.model.api.BaseItemKind;
 import org.jellyfin.sdk.model.api.BaseItemPerson;
+import org.jellyfin.sdk.model.api.LocationType;
 import org.jellyfin.sdk.model.api.MediaSourceInfo;
 import org.jellyfin.sdk.model.api.MediaStream;
 import org.jellyfin.sdk.model.api.MediaType;
@@ -109,8 +111,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
     private int BUTTON_SIZE;
 
     TextUnderButton mResumeButton;
-    private TextUnderButton mVersionsButton;
-    TextUnderButton mPrevButton;
+    private TextUnderButton mVersionsButton;    TextUnderButton mPrevButton;
     private TextUnderButton mRecordButton;
     private TextUnderButton mRecSeriesButton;
     private TextUnderButton mSeriesSettingsButton;
@@ -147,6 +148,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
     private final Lazy<MarkdownRenderer> markdownRenderer = inject(MarkdownRenderer.class);
     private final Lazy<CustomMessageRepository> customMessageRepository = inject(CustomMessageRepository.class);
     final Lazy<NavigationRepository> navigationRepository = inject(NavigationRepository.class);
+    private final Lazy<UserRepository> userRepository = inject(UserRepository.class);
     private final Lazy<ItemLauncher> itemLauncher = inject(ItemLauncher.class);
     private final Lazy<KeyProcessor> keyProcessor = inject(KeyProcessor.class);
     final Lazy<PlaybackHelper> playbackHelper = inject(PlaybackHelper.class);
@@ -795,6 +797,17 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
             });
             mDetailsOverviewRow.addAction(playButton);
 
+            // Download (and manage) subtitles, next to the other playback actions.
+            if (canManageSubtitles(baseItem)) {
+                TextUnderButton subtitleButton = TextUnderButton.create(requireContext(), R.drawable.ic_subtitles, buttonSize, 2, getString(R.string.subtitle_download_title), new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        SubtitleDownloadDialogHost.show(FullDetailsFragment.this, mBaseItem.getId());
+                    }
+                });
+                mDetailsOverviewRow.addAction(subtitleButton);
+            }
+
             if (isSeries && !isStarted) {
                 FullDetailsFragmentHelperKt.getNextUpEpisode(this, nextUpEpisode -> {
                     handleResumeButtonAndFocus(nextUpEpisode);
@@ -1070,6 +1083,25 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
         mDetailsOverviewRow.addAction(moreButton);
         if (mBaseItem.getType() != BaseItemKind.EPISODE)
             showMoreButtonIfNeeded();  //Episodes check for previous and then call this above
+    }
+
+    /**
+     * Whether the subtitle dialog may be opened for the item. Mirrors the rule of the web client:
+     * only video items the server can store subtitles for, and only for users allowed to manage
+     * subtitles.
+     */
+    private boolean canManageSubtitles(BaseItemDto item) {
+        if (item == null || item.getMediaType() != MediaType.VIDEO) return false;
+        if (item.getLocationType() == LocationType.VIRTUAL) return false;
+        // The status of a recording is the serialized RecordingStatus value.
+        if (item.getType() == BaseItemKind.RECORDING && !"Completed".equalsIgnoreCase(item.getStatus())) {
+            return false;
+        }
+
+        UserDto user = userRepository.getValue().getCurrentUser().getValue();
+        if (user == null) return false;
+
+        return user.getPolicy().getEnableSubtitleManagement() || user.getPolicy().isAdministrator();
     }
 
     private void handleResumeButtonAndFocus(BaseItemDto nextUpEpisode) {

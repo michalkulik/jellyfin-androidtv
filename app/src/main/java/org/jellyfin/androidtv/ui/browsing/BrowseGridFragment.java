@@ -525,7 +525,12 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             // fix any rounding errors and make pixel perfect
             cardHeightInt = (int) Math.round(getCardHeightBy(cardWidth, mImageType, mFolder));
             int cardWidthInt = (int) getCardWidthBy(cardHeightInt, mImageType, mFolder);
-            mCardImageHeight = cardHeightInt;
+            // The label is rendered below the image, so the image itself has to lose the label
+            // height. Without this the card is taller than the cell it was sized for, which makes the
+            // label overlap the row underneath and the top of the poster get clipped when the cell
+            // grows on focus. The width follows the smaller image so the aspect ratio stays intact.
+            mCardImageHeight = Math.max(cardHeightInt - labelReserve, 1);
+            cardWidthInt = (int) getCardWidthBy(mCardImageHeight, mImageType, mFolder);
             double cardPaddingLeftRightAdj = cardWidthInt * cardScaling;
             spacingHorizontalInt = Math.max((int) (Math.round((cardPaddingLeftRightAdj / 2.0) * CARD_SPACING_PCT)), 0); // round spacing
             if (mImageType == ImageType.BANNER) {
@@ -540,7 +545,8 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             }
             paddingTopInt = (int) Math.round((cardHeightInt * cardScaling) / 2.0);
             spacingVerticalInt = Math.max((int) (Math.round(paddingTopInt * CARD_SPACING_PCT)), 0); // round spacing
-            int cardsRow = (int) Math.round(((double) mGridHeight / (cardHeightInt + labelReserve + spacingVerticalInt)) + 0.5);
+            // cardHeightInt is the whole cell: the image plus the label it reserved room for.
+            int cardsRow = (int) Math.round(((double) mGridHeight / (cardHeightInt + spacingVerticalInt)) + 0.5);
             mCardsScreenEst = numCols * cardsRow;
             mCardsScreenStride = numCols;
         }
@@ -596,6 +602,10 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             mPosterSizeSetting = posterSizeSetting;
             mGridDirection = gridDirection;
             mShowLabels = showLabels;
+            // The card presenter is only rebuilt by buildAdapter(), which loadGrid() skips while
+            // mDirty is false. Marking it dirty makes a display change (for example turning the
+            // labels on) take effect immediately instead of only after leaving the library.
+            mDirty = true;
 
             if (mGridDirection.equals(GridDirection.VERTICAL) && (mGridPresenter == null || !(mGridPresenter instanceof VerticalGridPresenter))) {
                 setGridPresenter(new VerticalGridPresenter(FocusHighlight.ZOOM_FACTOR_LARGE, false));
