@@ -48,6 +48,7 @@ import org.jellyfin.androidtv.ui.base.list.ListMessage
 import org.jellyfin.androidtv.ui.base.list.ListSection
 import org.jellyfin.design.Tokens
 import org.jellyfin.sdk.api.client.ApiClient
+import org.jellyfin.sdk.api.client.HttpMethod
 import org.jellyfin.sdk.api.client.extensions.localizationApi
 import org.jellyfin.sdk.api.client.extensions.subtitleApi
 import org.jellyfin.sdk.api.client.extensions.userLibraryApi
@@ -89,6 +90,20 @@ private suspend fun ApiClient.downloadSubtitle(itemId: UUID, subtitleId: String)
 
 private suspend fun ApiClient.deleteSubtitle(itemId: UUID, index: Int): Result<Unit> = runCatching {
 	withContext(Dispatchers.IO) { subtitleApi.deleteSubtitle(itemId, index) }
+}
+
+/**
+ * The languages the library of the item is configured to download subtitles in.
+ *
+ * The endpoint is newer than the generated API this app is built against, so it is called directly.
+ * A server that does not have it answers with an error, which is reported as a failure so the caller
+ * can fall back to offering every language.
+ */
+private suspend fun ApiClient.loadSubtitleDownloadLanguages(itemId: UUID): Result<List<String>> = runCatching {
+	withContext(Dispatchers.IO) {
+		request(HttpMethod.GET, "Items/$itemId/SubtitleDownloadLanguages")
+			.createContent<List<String>>()
+	}
 }
 
 /**
@@ -136,6 +151,7 @@ object SubtitleDownloadDialogHost {
 private data class SubtitleDialogState(
 	val item: BaseItemDto? = null,
 	val languages: List<CultureDto> = emptyList(),
+	val configuredLanguages: List<String> = emptyList(),
 	val language: String = SubtitleDownloadLogic.LANGUAGE_FALLBACK,
 	val results: List<RemoteSubtitleInfo>? = null,
 	val loading: Boolean = false,
@@ -161,13 +177,23 @@ fun SubtitleDownloadDialog(
 		onDismiss()
 	}
 
-	// Loads the item (to list its subtitles) and the language list once.
+	// Loads the item (to list its subtitles), the language list and the languages the library is
+	// configured to download subtitles in, once.
 	LaunchedEffect(itemId) {
 		val cultures = runCatching {
 			withContext(Dispatchers.IO) { api.localizationApi.getCultures().content }
 		}.getOrDefault(emptyList())
 
 		state = state.copy(languages = cultures)
+
+		val configured = api.loadSubtitleDownloadLanguages(itemId).getOrElse { error ->
+			// A server without the endpoint cannot tell us what the library wants, so every language
+			// stays available instead of leaving the dropdown empty.
+			Timber.w(error, "Unable to read the library subtitle languages, offering every language")
+			emptyList()
+		}
+
+		state = state.copy(configuredLanguages = configured)
 
 		val item = api.loadSubtitleItem(itemId)
 
@@ -178,6 +204,7 @@ fun SubtitleDownloadDialog(
 					language = SubtitleDownloadLogic.resolveDefaultLanguage(
 						preference = userRepository.currentUser.value?.configuration?.subtitleLanguagePreference,
 						itemLanguages = SubtitleDownloadLogic.itemLanguages(loaded.mediaStreams),
+						configuredLanguages = configured,
 					),
 				)
 			},
@@ -409,9 +436,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.languageRow(
 }
 
 /**
- * The language dropdown: every culture the server knows about, plus the option to reveal the long
- * tail. A separate dialog is used instead of an inline list so the main dialog keeps its size when
- * the list is long.
+ * The language dropdown: the languages the library downloads, or every culture the server knows
+ * about when the library does not configure any. A separate dialog is used instead of an inline list
+ * so the main dialog keeps its size when the list is long.
  */
 @Composable
 private fun LanguagePickerDialog(
@@ -450,7 +477,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.languageOptions(
 	onSelect: (String) -> Unit,
 	onToggleShowAll: () -> Unit,
 ) {
-	val languages = SubtitleDownloadLogic.languageMenu(
+	val options = SubtitleDownloadLogic.languageOptions(
+		configuredLanguages = state.configuredLanguages,
 		languages = state.languages,
 		preferred = listOfNotNull(state.language) +
 			SubtitleDownloadLogic.itemLanguages(state.item?.mediaStreams),
@@ -465,13 +493,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.languageOptions(
 
 	// Keyed by position: several cultures can share a three letter code and duplicate keys
 	// are fatal.
-	itemsIndexed(languages) { _, culture ->
-		val code = culture.threeLetterIsoLanguageName.orEmpty()
-		val selected = code.equals(state.language, ignoreCase = true)
+	itemsIndexed(options) { _, option ->
+		val selected = option.code.equals(state.language, ignoreCase = true)
 
 		ListButton(
-			headingContent = { Text(culture.displayName ?: culture.name.orEmpty()) },
-			onClick = { onSelect(code) },
+			headingContent = { Text(option.name) },
+			onClick = { onSelect(option.code) },
 			trailingContent = {
 				if (selected) {
 					Icon(
@@ -484,6 +511,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.languageOptions(
 			},
 		)
 	}
+
+	// A library that configures its own languages offers exactly those, so there is nothing to expand.
+	if (state.configuredLanguages.isNotEmpty()) return
 
 	item {
 		val label = if (state.showAllLanguages) {

@@ -20,6 +20,15 @@ object SubtitleDownloadLogic {
 	const val LANGUAGE_FALLBACK = "eng"
 
 	/**
+	 * One entry of the language dropdown. The code is what the server expects for a subtitle search,
+	 * the name is what the user sees.
+	 */
+	data class SubtitleLanguageOption(
+		val code: String,
+		val name: String,
+	)
+
+	/**
 	 * Languages offered before the full list is expanded: the common European ones, so the usual
 	 * choice is a press or two away instead of scrolling through hundreds of cultures.
 	 */
@@ -51,11 +60,32 @@ object SubtitleDownloadLogic {
 	/**
 	 * The language the dialog should start with.
 	 *
-	 * The library language is not exposed to regular API clients, so the order is: the preference the
-	 * user configured on the server, then the language already present on the item, then the language
-	 * of the device and finally English.
+	 * A library that is configured to download subtitles has a list of languages, and that list is
+	 * what the library actually wants, so it wins over everything else. Inside it the user preference
+	 * and the languages already on the item are used to pick one, falling back to the first.
+	 *
+	 * Without a library configuration the order is: the preference the user configured on the server,
+	 * then the language already present on the item, then the language of the device and finally
+	 * English.
 	 */
-	fun resolveDefaultLanguage(preference: String?, itemLanguages: List<String>): String {
+	fun resolveDefaultLanguage(
+		preference: String?,
+		itemLanguages: List<String>,
+		configuredLanguages: List<String> = emptyList(),
+	): String {
+		if (configuredLanguages.isNotEmpty()) {
+			val preferred = preference
+				?.takeIf { it.isNotBlank() && !it.equals(LANGUAGE_DEFAULT, ignoreCase = true) }
+				?.let { value -> configuredLanguages.firstOrNull { it.equals(value, ignoreCase = true) } }
+			if (preferred != null) return preferred
+
+			val fromItem = itemLanguages
+				.firstOrNull { item -> configuredLanguages.any { it.equals(item, ignoreCase = true) } }
+			if (fromItem != null) return fromItem
+
+			return configuredLanguages.first()
+		}
+
 		val configured = preference
 			?.takeIf { it.isNotBlank() && !it.equals(LANGUAGE_DEFAULT, ignoreCase = true) }
 		if (configured != null) return configured
@@ -69,6 +99,33 @@ object SubtitleDownloadLogic {
 		if (!deviceLanguage.isNullOrBlank()) return deviceLanguage
 
 		return LANGUAGE_FALLBACK
+	}
+
+	/**
+	 * The languages the dropdown offers.
+	 *
+	 * When the library configures subtitle downloads, only those languages are offered: downloading
+	 * anything else is not what the library is set up for. Otherwise every culture the server knows
+	 * about is offered, with the common ones first.
+	 */
+	fun languageOptions(
+		configuredLanguages: List<String>,
+		languages: List<CultureDto>,
+		preferred: List<String>,
+		showAll: Boolean,
+	): List<SubtitleLanguageOption> {
+		if (configuredLanguages.isNotEmpty()) {
+			return configuredLanguages.map { code ->
+				SubtitleLanguageOption(code, languageDisplayName(languages, code))
+			}
+		}
+
+		return languageMenu(languages, preferred, showAll).map { culture ->
+			SubtitleLanguageOption(
+				code = culture.threeLetterIsoLanguageName.orEmpty(),
+				name = culture.displayName.ifBlank { culture.name.orEmpty() },
+			)
+		}
 	}
 
 	/**
@@ -107,13 +164,26 @@ object SubtitleDownloadLogic {
 		return known + rest
 	}
 
-	/** The display name of a language code, falling back to the code itself. */
+	/**
+	 * The display name of a language code. The server's culture list is authoritative; when it does not
+	 * describe the code (for example a language the library was configured with while the culture list
+	 * was unavailable) the device locales are asked, and only then the bare code is shown.
+	 */
 	fun languageDisplayName(languages: List<CultureDto>, code: String?): String {
 		if (code.isNullOrBlank()) return ""
 
-		return languages
+		languages
 			.firstOrNull { it.threeLetterIsoLanguageName.equals(code, ignoreCase = true) }
 			?.displayName
+			?.takeIf { it.isNotBlank() }
+			?.let { return it }
+
+		return Locale.getAvailableLocales()
+			.firstOrNull { locale ->
+				runCatching { locale.getISO3Language() }.getOrNull().equals(code, ignoreCase = true)
+			}
+			?.displayLanguage
+			?.takeIf { it.isNotBlank() }
 			?: code
 	}
 

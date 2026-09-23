@@ -76,8 +76,74 @@ class SubtitleDownloadLogicTests : FunSpec({
 		val languages = listOf(culture("pol", "Polish"))
 
 		SubtitleDownloadLogic.languageDisplayName(languages, "pol") shouldBe "Polish"
-		SubtitleDownloadLogic.languageDisplayName(languages, "xyz") shouldBe "xyz"
 		SubtitleDownloadLogic.languageDisplayName(languages, null) shouldBe ""
+	}
+
+	test("a language the culture list does not describe is still named") {
+		// The library can be configured with a language while the culture list is unavailable, so the
+		// device locales are the last resort before showing the bare code.
+		SubtitleDownloadLogic.languageDisplayName(emptyList(), "pol").isBlank() shouldBe false
+		SubtitleDownloadLogic.languageDisplayName(emptyList(), "xyz") shouldBe "xyz"
+	}
+
+	test("the configured library languages win over the user preference") {
+		SubtitleDownloadLogic.resolveDefaultLanguage(
+			preference = "ger",
+			itemLanguages = listOf("pol"),
+			configuredLanguages = listOf("pol", "eng"),
+		) shouldBe "pol"
+	}
+
+	test("inside the configured languages the user preference is honored") {
+		SubtitleDownloadLogic.resolveDefaultLanguage(
+			preference = "eng",
+			itemLanguages = listOf("pol"),
+			configuredLanguages = listOf("pol", "eng"),
+		) shouldBe "eng"
+	}
+
+	test("the first configured language is the fallback") {
+		SubtitleDownloadLogic.resolveDefaultLanguage(
+			preference = null,
+			itemLanguages = emptyList(),
+			configuredLanguages = listOf("pol", "eng"),
+		) shouldBe "pol"
+	}
+
+	test("without a library configuration the previous order still applies") {
+		SubtitleDownloadLogic.resolveDefaultLanguage(
+			preference = "ger",
+			itemLanguages = listOf("pol"),
+			configuredLanguages = emptyList(),
+		) shouldBe "ger"
+	}
+
+	test("the dropdown offers exactly the configured library languages") {
+		val languages = listOf(culture("pol", "Polish"), culture("eng", "English"), culture("ger", "German"))
+
+		val options = SubtitleDownloadLogic.languageOptions(
+			configuredLanguages = listOf("eng", "pol"),
+			languages = languages,
+			preferred = listOf("pol"),
+			showAll = false,
+		)
+
+		// The library order is kept, and nothing outside the configured list appears.
+		options.map { it.code } shouldBe listOf("eng", "pol")
+		options.map { it.name } shouldBe listOf("English", "Polish")
+	}
+
+	test("without a library configuration the dropdown keeps offering every language") {
+		val languages = listOf(culture("eng", "English"), culture("pol", "Polish"), culture("ger", "German"))
+
+		val options = SubtitleDownloadLogic.languageOptions(
+			configuredLanguages = emptyList(),
+			languages = languages,
+			preferred = listOf("pol"),
+			showAll = false,
+		)
+
+		options.map { it.code } shouldBe listOf("pol", "eng", "ger")
 	}
 
 	test("the result caption lists format, downloads and frame rate") {
