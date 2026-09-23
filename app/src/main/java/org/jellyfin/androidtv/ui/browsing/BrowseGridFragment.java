@@ -129,7 +129,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
     private final double CARD_SPACING_HORIZONTAL_BANNER_PCT = 0.5; // 50% allow horizontal card overlapping for banners, otherwise spacing is too large
     private final int VIEW_SELECT_UPDATE_DELAY = 250; // delay in ms until we update the top-row info for a selected item
     private final int LABEL_BLOCK_HEIGHT = 44; // dp reserved below the image for the card label, so enabling labels does not push rows out of view
-
+    private final int LABEL_FOCUS_GAP = 8; // dp of clearance kept between a focused card's label and the row below it
     private boolean mDirty = true; // CardHeight, RowDef or GridSize changed
 
     @Override
@@ -459,7 +459,6 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             return;
         }
         double cardScaling = Math.max(mCardFocusScale - 1.0, 0.0);
-        int labelReserve = mShowLabels ? LABEL_BLOCK_HEIGHT : 0;
         int cardHeightInt = 100;
         mCardImageHeight = 0;
         int spacingHorizontalInt = 0;
@@ -501,7 +500,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             }
             // The label sits below the image, so the image has to be smaller to keep the row inside
             // its budget.
-            mCardImageHeight = Math.max(cardHeightInt - labelReserve, 1);
+            mCardImageHeight = Math.max(cardHeightInt - labelReserveFor(cardHeightInt), 1);
             int cardWidthInt = (int) getCardWidthBy(mCardImageHeight, mImageType, mFolder);
             paddingLeftInt = (int) Math.round((cardWidthInt * cardScaling) / 2.0);
             spacingHorizontalInt = Math.max((int) (Math.round(paddingLeftInt * CARD_SPACING_PCT)), 0); // round spacing
@@ -529,7 +528,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
             // height. Without this the card is taller than the cell it was sized for, which makes the
             // label overlap the row underneath and the top of the poster get clipped when the cell
             // grows on focus. The width follows the smaller image so the aspect ratio stays intact.
-            mCardImageHeight = Math.max(cardHeightInt - labelReserve, 1);
+            mCardImageHeight = Math.max(cardHeightInt - labelReserveFor(cardHeightInt), 1);
             cardWidthInt = (int) getCardWidthBy(mCardImageHeight, mImageType, mFolder);
             double cardPaddingLeftRightAdj = cardWidthInt * cardScaling;
             spacingHorizontalInt = Math.max((int) (Math.round((cardPaddingLeftRightAdj / 2.0) * CARD_SPACING_PCT)), 0); // round spacing
@@ -554,7 +553,7 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         Timber.d("numCardsScreen <%s>", numCardsScreen);
 
         if (mCardImageHeight <= 0) {
-            mCardImageHeight = Math.max(cardHeightInt - labelReserve, 1);
+            mCardImageHeight = Math.max(cardHeightInt - labelReserveFor(cardHeightInt), 1);
         }
 
         if (mCardHeight != cardHeightInt) {
@@ -565,6 +564,23 @@ public class BrowseGridFragment extends Fragment implements View.OnKeyListener {
         mGridItemSpacingVertical = spacingVerticalInt;
         mGridPaddingLeft = paddingLeftInt;
         mGridPaddingTop = paddingTopInt;
+    }
+
+    /**
+     * Height to reserve below the image for the card label.
+     *
+     * The label is rendered inside the card view, so the focus zoom grows it together with the
+     * image. The cell pitch only grows by half of the zoom, because a focused card zooms around its
+     * own centre, so the remaining half has to come out of the reserved space. A fixed reserve is not
+     * enough for tall cells: with a large poster size the zoom of the image alone already exceeds it
+     * and the label of the focused card ends up on top of the row below.
+     */
+    private int labelReserveFor(int cellHeight) {
+        if (!mShowLabels) return 0;
+
+        double growth = Math.max(mCardFocusScale - 1.0, 0.0);
+        int zoomOverflow = (int) Math.ceil(cellHeight * growth / (2.0 * (1.0 + growth)));
+        return LABEL_BLOCK_HEIGHT + zoomOverflow + LABEL_FOCUS_GAP;
     }
 
     private void setupQueries() {

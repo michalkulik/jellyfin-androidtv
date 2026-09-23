@@ -5,10 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.painterResource
@@ -42,7 +42,6 @@ import org.jellyfin.androidtv.ui.base.Icon
 import org.jellyfin.androidtv.ui.base.JellyfinTheme
 import org.jellyfin.androidtv.ui.base.LocalShapes
 import org.jellyfin.androidtv.ui.base.Text
-import org.jellyfin.androidtv.ui.base.button.Button
 import org.jellyfin.androidtv.ui.base.dialog.DialogBase
 import org.jellyfin.androidtv.ui.base.list.ListButton
 import org.jellyfin.androidtv.ui.base.list.ListMessage
@@ -62,6 +61,13 @@ import java.util.UUID
 
 /** Tag used to find the already attached dialog host inside the details view. */
 private const val HOST_TAG = "subtitle-download-dialog"
+
+/**
+ * How much of the screen height a dialog may take. A fixed dp height would be taller than the panel
+ * on a television, where the display density is around 2, so the dialogs size themselves against the
+ * screen instead.
+ */
+private const val DIALOG_HEIGHT_FRACTION = 0.85f
 
 /** How long to wait for the dialog exit transition before the host view is removed. */
 private const val HOST_REMOVE_DELAY_MS = 400L
@@ -147,6 +153,7 @@ fun SubtitleDownloadDialog(
 	val scope = rememberCoroutineScope()
 	var state by remember { mutableStateOf(SubtitleDialogState()) }
 	var pendingDelete by remember { mutableStateOf<MediaStream?>(null) }
+	var languagePickerOpen by remember { mutableStateOf(false) }
 	var visible by remember { mutableStateOf(true) }
 
 	val close = {
@@ -185,17 +192,24 @@ fun SubtitleDownloadDialog(
 		visible = visible,
 		onDismissRequest = close,
 	) {
+		// The height is a fraction of the screen instead of a fixed size: a fixed dp height is
+		// larger than the screen on a television (the display density there is around 2, so 620dp
+		// would be 1240px on a 1080p panel) and the dialog would stick out at the top and bottom.
 		Column(
 			modifier = Modifier
 				.width(760.dp)
-				.heightIn(max = 620.dp)
+				.fillMaxHeight(DIALOG_HEIGHT_FRACTION)
 				.clip(LocalShapes.current.large)
 				.background(JellyfinTheme.colorScheme.surface)
 				.padding(Tokens.Space.spaceMd),
 		) {
 			LazyColumn(
 				verticalArrangement = Arrangement.spacedBy(Tokens.Space.spaceXs),
-				modifier = Modifier.fillMaxSize(),
+				// Restores the focus after the list changes (the results appear below the buttons), so
+				// the D-pad stays where the user left it instead of jumping to the top.
+				modifier = Modifier
+					.fillMaxSize()
+					.focusRestorer(),
 			) {
 				item {
 					ListSection(
@@ -206,10 +220,9 @@ fun SubtitleDownloadDialog(
 
 				subtitlesSection(state.item, onDeleteRequested = { pendingDelete = it })
 
-				languageSection(
+				languageRow(
 					state = state,
-					onSelectLanguage = { state = state.copy(language = it, results = null) },
-					onToggleShowAll = { state = state.copy(showAllLanguages = !state.showAllLanguages) },
+					onOpen = { languagePickerOpen = true },
 				)
 
 				// Full width rows instead of a button row: on a TV the focus order of a wrapped row is
@@ -225,8 +238,13 @@ fun SubtitleDownloadDialog(
 								modifier = Modifier.size(20.dp),
 							)
 						},
-						enabled = !state.loading && state.language.isNotEmpty(),
+						// Kept enabled while a search is running: a disabled button loses the focus, so the
+						// D-pad position would jump away right after the user pressed it. Repeated presses are
+						// ignored below instead.
+						enabled = state.language.isNotEmpty(),
 						onClick = {
+							if (state.loading) return@ListButton
+
 							scope.launch {
 								state = state.copy(loading = true, results = null, message = null)
 								state = api.searchSubtitles(itemId, state.language).fold(
@@ -284,6 +302,18 @@ fun SubtitleDownloadDialog(
 				}
 			}
 		}
+	}
+
+	if (languagePickerOpen) {
+		LanguagePickerDialog(
+			state = state,
+			onSelect = { code ->
+				state = state.copy(language = code, results = null)
+				languagePickerOpen = false
+			},
+			onToggleShowAll = { state = state.copy(showAllLanguages = !state.showAllLanguages) },
+			onDismiss = { languagePickerOpen = false },
+		)
 	}
 
 	pendingDelete?.let { stream ->
@@ -350,30 +380,98 @@ private fun androidx.compose.foundation.lazy.LazyListScope.subtitlesSection(
 	}
 }
 
-/** The language selector. A short list of common languages is shown first. */
-private fun androidx.compose.foundation.lazy.LazyListScope.languageSection(
+/** The language, shown as a dropdown that opens the full list. */
+private fun androidx.compose.foundation.lazy.LazyListScope.languageRow(
 	state: SubtitleDialogState,
-	onSelectLanguage: (String) -> Unit,
-	onToggleShowAll: () -> Unit,
+	onOpen: () -> Unit,
 ) {
 	item {
 		ListSection(headingContent = { Text(stringResource(R.string.subtitle_download_language)) })
 	}
 
+	item {
+		val name = SubtitleDownloadLogic.languageDisplayName(state.languages, state.language)
+			.ifBlank { state.language }
+
+		ListButton(
+			headingContent = { Text(name) },
+			onClick = onOpen,
+			trailingContent = {
+				Icon(
+					painter = painterResource(R.drawable.ic_arrow_drop_down),
+					contentDescription = null,
+					tint = Tokens.Color.colorWhite,
+					modifier = Modifier.size(24.dp),
+				)
+			},
+		)
+	}
+}
+
+/**
+ * The language dropdown: every culture the server knows about, plus the option to reveal the long
+ * tail. A separate dialog is used instead of an inline list so the main dialog keeps its size when
+ * the list is long.
+ */
+@Composable
+private fun LanguagePickerDialog(
+	state: SubtitleDialogState,
+	onSelect: (String) -> Unit,
+	onToggleShowAll: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	DialogBase(
+		visible = true,
+		onDismissRequest = onDismiss,
+	) {
+		Column(
+			modifier = Modifier
+				.width(620.dp)
+				.fillMaxHeight(DIALOG_HEIGHT_FRACTION)
+				.clip(LocalShapes.current.large)
+				.background(JellyfinTheme.colorScheme.surface)
+				.padding(Tokens.Space.spaceMd),
+		) {
+			LazyColumn(
+				verticalArrangement = Arrangement.spacedBy(Tokens.Space.spaceXs),
+				modifier = Modifier
+					.fillMaxSize()
+					.focusRestorer(),
+			) {
+				languageOptions(state, onSelect, onToggleShowAll)
+			}
+		}
+	}
+}
+
+/** The rows of the language dropdown: the languages, then the expand/collapse action. */
+private fun androidx.compose.foundation.lazy.LazyListScope.languageOptions(
+	state: SubtitleDialogState,
+	onSelect: (String) -> Unit,
+	onToggleShowAll: () -> Unit,
+) {
 	val languages = SubtitleDownloadLogic.languageMenu(
 		languages = state.languages,
-		preferred = listOfNotNull(state.language) + SubtitleDownloadLogic.itemLanguages(state.item?.mediaStreams),
+		preferred = listOfNotNull(state.language) +
+			SubtitleDownloadLogic.itemLanguages(state.item?.mediaStreams),
 		showAll = state.showAllLanguages,
 	)
 
-	// Keyed by position: several cultures can share a three letter code and duplicate keys are fatal.
-	itemsIndexed(languages) { index, culture ->
+	item {
+		ListSection(
+			headingContent = { Text(stringResource(R.string.subtitle_download_language)) },
+		)
+	}
+
+	// Keyed by position: several cultures can share a three letter code and duplicate keys
+	// are fatal.
+	itemsIndexed(languages) { _, culture ->
 		val code = culture.threeLetterIsoLanguageName.orEmpty()
 		val selected = code.equals(state.language, ignoreCase = true)
 
 		ListButton(
 			headingContent = { Text(culture.displayName ?: culture.name.orEmpty()) },
-			onClick = { onSelectLanguage(code) },
+			onClick = { onSelect(code) },
 			trailingContent = {
 				if (selected) {
 					Icon(
@@ -388,7 +486,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.languageSection(
 	}
 
 	item {
-		val label = if (state.showAllLanguages) R.string.lbl_close else R.string.subtitle_download_all_languages
+		val label = if (state.showAllLanguages) {
+			R.string.lbl_close
+		} else {
+			R.string.subtitle_download_all_languages
+		}
+
 		ListButton(
 			headingContent = { Text(stringResource(label)) },
 			onClick = onToggleShowAll,
@@ -442,47 +545,5 @@ private fun androidx.compose.foundation.lazy.LazyListScope.resultsSection(
 			enabled = !state.loading,
 			onClick = { onDownload(result) },
 		)
-	}
-}
-
-@Composable
-private fun ConfirmDeleteSubtitleDialog(
-	name: String,
-	onConfirm: () -> Unit,
-	onDismiss: () -> Unit,
-) {
-	DialogBase(
-		visible = true,
-		onDismissRequest = onDismiss,
-	) {
-		Column(
-			modifier = Modifier
-				.width(480.dp)
-				.clip(LocalShapes.current.large)
-				.background(JellyfinTheme.colorScheme.surface)
-				.padding(Tokens.Space.spaceLg),
-			verticalArrangement = Arrangement.spacedBy(Tokens.Space.spaceSm),
-		) {
-			Text(
-				text = stringResource(R.string.subtitle_download_delete_title),
-				fontSize = Tokens.Typography.typographyFontSizeXl.value.sp,
-				color = Tokens.Color.colorWhite,
-			)
-			Text(
-				text = stringResource(R.string.subtitle_download_delete_message, name),
-				color = Tokens.Color.colorWhite,
-			)
-			Row(
-				modifier = Modifier.fillMaxWidth(),
-				horizontalArrangement = Arrangement.spacedBy(Tokens.Space.spaceSm, Alignment.End),
-			) {
-				Button(onClick = onConfirm) {
-					Text(stringResource(R.string.lbl_delete))
-				}
-				Button(onClick = onDismiss) {
-					Text(stringResource(R.string.lbl_cancel))
-				}
-			}
-		}
 	}
 }

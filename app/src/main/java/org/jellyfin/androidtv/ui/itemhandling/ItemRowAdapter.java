@@ -682,7 +682,10 @@ public class ItemRowAdapter extends MutableObjectAdapter<Object> {
     private void loadStaticItems() {
         if (mItems != null) {
             for (org.jellyfin.sdk.model.api.BaseItemDto item : mItems) {
-                add(new BaseItemDtoBaseRowItem(item));
+                // The row flags have to reach the item, otherwise the presenter falls back to its own
+                // fixed card height and ignores the height the grid calculated for this row (which is
+                // what reserves room for the card labels).
+                add(new BaseItemDtoBaseRowItem(item, getPreferParentThumb(), isStaticHeight()));
             }
             itemsLoaded = mItems.size();
         } else {

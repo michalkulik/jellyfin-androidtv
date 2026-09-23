@@ -14,10 +14,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
@@ -56,6 +61,7 @@ import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.sockets.subscribe
 import org.jellyfin.sdk.model.api.LibraryChangedMessage
 import org.jellyfin.sdk.model.api.UserDataChangedMessage
+import org.jellyfin.sdk.model.api.UserDto
 import org.koin.android.ext.android.inject
 import timber.log.Timber
 import kotlin.time.Duration.Companion.seconds
@@ -84,6 +90,9 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	private var justLoaded = true
 	private var rowsLoading = false
 	private var libraryReloadAttempts = 0
+	private var reloadRequested = false
+	private var rowsBuilt = false
+	private var lastLibraryReloadAt = 0L
 
 	// Special rows
 	private val notificationsRow by lazy { NotificationsHomeFragmentRow(lifecycleScope, notificationsRepository) }
@@ -92,6 +101,13 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	private companion object {
 		/** How often the home rows are rebuilt in a row while the libraries stay empty. */
 		private const val MAX_LIBRARY_RELOAD_ATTEMPTS = 3
+
+		/**
+		 * How long to wait before the rebuild attempts start counting again. The cap alone must not be
+		 * permanent: a rebuild that keeps failing would otherwise leave the home empty until the app is
+		 * restarted, which is exactly the bug this guards against.
+		 */
+		private const val LIBRARY_RELOAD_COOLDOWN_MS = 30_000L
 	}
 
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -140,70 +156,113 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	 * finish (for example the session was (re)created while the app was in the background) the rows
 	 * are rebuilt so the home screen does not stay empty until the activity is recreated.
 	 */
+	@Suppress("TooGenericExceptionCaught")
 	private fun loadRows() {
-		if (rowsLoading) return
+		if (rowsLoading) {
+			// A rebuild is already in flight (it can wait up to [withTimeout] for the session). Remember
+			// the request instead of dropping it: otherwise a resume that happens while the first load
+			// is still running does nothing, and if that load then fails the home stays empty until the
+			// next resume.
+			reloadRequested = true
+			return
+		}
+
 		rowsLoading = true
 
 		lifecycleScope.launch(Dispatchers.IO) {
+			var built = false
+
 			try {
 				val currentUser = withTimeout(30.seconds) {
 					userRepository.currentUser.filterNotNull().first()
 				}
 
-				// Start out with default sections
-				val homesections = userSettingPreferences.activeHomesections
+				val rows = buildRows(currentUser)
 
-				// Make sure the rows are empty
-				val rows = mutableListOf<HomeFragmentRow>()
-
-				// Check for coroutine cancellation
-				if (!isActive) return@launch
-
-				// Actually add the sections
-				for (section in homesections) when (section) {
-					HomeSectionType.LATEST_MEDIA -> rows.add(helper.loadRecentlyAdded(userViewsRepository.views.first()))
-					HomeSectionType.LIBRARY_TILES_SMALL -> rows.add(HomeFragmentViewsRow(small = false))
-					HomeSectionType.LIBRARY_BUTTONS -> rows.add(HomeFragmentViewsRow(small = true))
-					HomeSectionType.RESUME -> rows.add(helper.loadResumeVideo())
-					HomeSectionType.RESUME_AUDIO -> rows.add(helper.loadResumeAudio())
-					HomeSectionType.RESUME_BOOK -> Unit // Books are not (yet) supported
-					HomeSectionType.ACTIVE_RECORDINGS -> rows.add(helper.loadLatestLiveTvRecordings())
-					HomeSectionType.NEXT_UP -> rows.add(helper.loadNextUp())
-					HomeSectionType.LIVE_TV -> if (currentUser.policy?.enableLiveTvAccess == true) {
-						rows.add(HomeFragmentLiveTVRow(requireActivity(), userRepository))
-						rows.add(helper.loadOnNow())
-					}
-
-					HomeSectionType.NONE -> Unit
-				}
-
-				// Add sections to layout
 				withContext(Dispatchers.Main) {
-					@Suppress("UNCHECKED_CAST")
-					val rowsAdapter = adapter as MutableObjectAdapter<Row>
-					val cardPresenter = CardPresenter()
-
-					// Rebuild from scratch so a retry does not append duplicate rows
-					rowsAdapter.clear()
-
-					// Add rows in order
-					notificationsRow.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
-					nowPlaying.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
-					for (row in rows) row.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
-
-					// Wire up Live TV sibling rows so the On Now row removes the buttons row when empty
-					for (i in 0 until rowsAdapter.size()) {
-						val listRow = rowsAdapter.get(i) as? ListRow ?: continue
-						val itemAdapter = listRow.adapter as? ItemRowAdapter ?: continue
-						if (itemAdapter.queryType == QueryType.LiveTvProgram && i > 0) {
-							val previousRow = rowsAdapter.get(i - 1)
-							if (previousRow != null) itemAdapter.setSiblingRow(previousRow)
-						}
-					}
+					showRows(rows)
+					built = true
 				}
+			} catch (e: TimeoutCancellationException) {
+				// The session was not ready in time (for example it was recreated while the app was in
+				// the background). Report it instead of failing silently, so the resume retry can pick it
+				// up.
+				Timber.w(e, "Timed out waiting for the current user, the home rows will be retried")
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				// Deliberately broad: a single unexpected failure while building the rows must not take
+				// the whole home screen down, the resume retry rebuilds them.
+				Timber.e(e, "Unable to build the home rows, they will be retried")
 			} finally {
 				rowsLoading = false
+				rowsBuilt = built
+
+				if (reloadRequested) {
+					reloadRequested = false
+					loadRows()
+				}
 			}
+		}
+	}
+
+	/** Creates the configured home sections, in order. */
+	private suspend fun buildRows(currentUser: UserDto): List<HomeFragmentRow> {
+		// The library list must not take the whole home down with it when the request fails.
+		val userViews = userViewsRepository.views
+			.catch { error -> Timber.w(error, "Unable to load the user views for the home rows") }
+			.firstOrNull()
+			.orEmpty()
+
+		// Check for coroutine cancellation
+		if (!currentCoroutineContext().isActive) return emptyList()
+
+		val rows = mutableListOf<HomeFragmentRow>()
+
+		for (section in userSettingPreferences.activeHomesections) when (section) {
+			HomeSectionType.LATEST_MEDIA -> rows.add(helper.loadRecentlyAdded(userViews))
+			HomeSectionType.LIBRARY_TILES_SMALL -> rows.add(HomeFragmentViewsRow(small = false))
+			HomeSectionType.LIBRARY_BUTTONS -> rows.add(HomeFragmentViewsRow(small = true))
+			HomeSectionType.RESUME -> rows.add(helper.loadResumeVideo())
+			HomeSectionType.RESUME_AUDIO -> rows.add(helper.loadResumeAudio())
+			HomeSectionType.RESUME_BOOK -> Unit // Books are not (yet) supported
+			HomeSectionType.ACTIVE_RECORDINGS -> rows.add(helper.loadLatestLiveTvRecordings())
+			HomeSectionType.NEXT_UP -> rows.add(helper.loadNextUp())
+			HomeSectionType.LIVE_TV -> if (currentUser.policy?.enableLiveTvAccess == true) {
+				rows.add(HomeFragmentLiveTVRow(requireActivity(), userRepository))
+				rows.add(helper.loadOnNow())
+			}
+
+			HomeSectionType.NONE -> Unit
+		}
+
+		return rows
+	}
+
+	/** Replaces the rows of the adapter with [rows]. Runs on the main thread. */
+	private fun showRows(rows: List<HomeFragmentRow>) {
+		@Suppress("UNCHECKED_CAST")
+		val rowsAdapter = adapter as MutableObjectAdapter<Row>
+		val cardPresenter = CardPresenter()
+
+		// Rebuild from scratch so a retry does not append duplicate rows
+		rowsAdapter.clear()
+
+		// Add rows in order
+		notificationsRow.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
+		nowPlaying.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
+		for (row in rows) row.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
+
+		wireUpLiveTvSiblingRows(rowsAdapter)
+	}
+
+	/** Lets the On Now row remove the Live TV buttons row when it has nothing to show. */
+	private fun wireUpLiveTvSiblingRows(rowsAdapter: MutableObjectAdapter<Row>) {
+		for (i in 1 until rowsAdapter.size()) {
+			val itemAdapter = (rowsAdapter.get(i) as? ListRow)?.adapter as? ItemRowAdapter ?: continue
+			if (itemAdapter.queryType != QueryType.LiveTvProgram) continue
+
+			itemAdapter.setSiblingRow(rowsAdapter.get(i - 1))
 		}
 	}
 
@@ -234,7 +293,7 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		// example the session was (re)created while the app was in the background, or the request
 		// failed because the app had been idle for a long time). Retry it so the user does not have
 		// to leave and re-enter the app to get the libraries back.
-		if (adapter.size() == 0 || libraryRowsEmpty()) loadRows()
+		if (!rowsBuilt || adapter.size() == 0 || libraryRowsEmpty()) loadRows()
 
 		// Update audio queue
 		Timber.i("Updating audio queue in HomeFragment (onResume)")
@@ -250,13 +309,19 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	 * otherwise trigger a new request on every resume.
 	 */
 	private fun libraryRowsEmpty(): Boolean {
-		if (libraryReloadAttempts >= MAX_LIBRARY_RELOAD_ATTEMPTS) return false
-
 		val sections = userSettingPreferences.activeHomesections
 		val expectsLibraries = sections.any {
 			it == HomeSectionType.LIBRARY_TILES_SMALL || it == HomeSectionType.LIBRARY_BUTTONS
 		}
 		if (!expectsLibraries) return false
+
+		// The attempt budget only throttles the rebuilds; once the cooldown passed it starts over so
+		// an empty home always recovers on its own instead of staying empty until a restart.
+		if (libraryReloadAttempts >= MAX_LIBRARY_RELOAD_ATTEMPTS) {
+			if (System.currentTimeMillis() - lastLibraryReloadAt < LIBRARY_RELOAD_COOLDOWN_MS) return false
+
+			libraryReloadAttempts = 0
+		}
 
 		for (index in 0 until adapter.size()) {
 			val rowAdapter = (adapter[index] as? ListRow)?.adapter as? ItemRowAdapter ?: continue
@@ -269,6 +334,7 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 
 		// No library row with any item: rebuild the rows.
 		libraryReloadAttempts++
+		lastLibraryReloadAt = System.currentTimeMillis()
 		Timber.i("Home has no libraries, rebuilding the rows (attempt %d)", libraryReloadAttempts)
 		return true
 	}
