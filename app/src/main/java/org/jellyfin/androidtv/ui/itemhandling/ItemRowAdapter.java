@@ -105,7 +105,11 @@ public class ItemRowAdapter extends MutableObjectAdapter<Object> {
     private final Lazy<UserViewsRepository> userViewsRepository = inject(UserViewsRepository.class);
     private Context context;
 
-    private boolean isCurrentlyRetrieving() {
+    /**
+     * Whether a request for this row is in flight. Used by the home screen to keep its loading
+     * overlay up until the library rows finished filling themselves in.
+     */
+    public boolean isCurrentlyRetrieving() {
         synchronized (currentlyRetrievingSemaphore) {
             return currentlyRetrieving;
         }

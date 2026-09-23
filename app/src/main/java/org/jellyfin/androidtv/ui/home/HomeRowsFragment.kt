@@ -16,9 +16,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -94,6 +98,16 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	private var rowsBuilt = false
 	private var lastLibraryReloadAt = 0L
 
+	// Loading
+	private val _loading = MutableStateFlow(true)
+	private var libraryLoadWatchdog: Job? = null
+
+	/**
+	 * Whether the home is still being built and should be covered by a loader. Starts as `true`
+	 * because the rows are always empty when the fragment is created.
+	 */
+	val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
 	// Special rows
 	private val notificationsRow by lazy { NotificationsHomeFragmentRow(lifecycleScope, notificationsRepository) }
 	private val nowPlaying by lazy { HomeFragmentNowPlayingRow(lifecycleScope, playbackManager, mediaManager) }
@@ -101,6 +115,15 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	private companion object {
 		/** How often the home rows are rebuilt in a row while the libraries stay empty. */
 		private const val MAX_LIBRARY_RELOAD_ATTEMPTS = 3
+
+		/**
+		 * How long the loading overlay may stay up when the library rows never report that they are
+		 * done. A request that gets lost must not cover the home forever.
+		 */
+		private const val LIBRARY_LOAD_TIMEOUT_MS = 15_000L
+
+		/** How often the library rows are checked while the loading overlay is up. */
+		private const val LIBRARY_LOAD_POLL_MS = 100L
 
 		/**
 		 * How long to wait before the rebuild attempts start counting again. The cap alone must not be
@@ -157,7 +180,15 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	 * are rebuilt so the home screen does not stay empty until the activity is recreated.
 	 */
 	@Suppress("TooGenericExceptionCaught")
-	private fun loadRows() {
+	private fun loadRows(showLoader: Boolean = false) {
+		Timber.i(
+			"Home rows load requested (rowsLoading=%b, rowsBuilt=%b, rows=%d, showLoader=%b)",
+			rowsLoading,
+			rowsBuilt,
+			adapter.size(),
+			showLoader,
+		)
+
 		if (rowsLoading) {
 			// A rebuild is already in flight (it can wait up to [withTimeout] for the session). Remember
 			// the request instead of dropping it: otherwise a resume that happens while the first load
@@ -168,6 +199,11 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		}
 
 		rowsLoading = true
+
+		// The overlay only covers the home when there is nothing to look at yet, or when the rebuild
+		// was asked for because the libraries were missing. Refreshing a home that is already on
+		// screen must not blank it out.
+		if (showLoader || adapter.size() == 0) setLoading(true)
 
 		lifecycleScope.launch(Dispatchers.IO) {
 			var built = false
@@ -198,9 +234,17 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 				rowsLoading = false
 				rowsBuilt = built
 
+				// Nothing was built, so there is nothing to wait for either: hiding the overlay lets the
+				// user see the (possibly empty) home instead of a spinner that would never stop. The
+				// resume retry picks the rows up again.
+				if (!built) setLoading(false)
+
 				if (reloadRequested) {
 					reloadRequested = false
-					loadRows()
+					// Only retry a load that produced nothing. A rebuild queued while a load that succeeded
+					// was running (the resume that follows the create on every start) would otherwise rebuild
+					// the rows a second time, which is visible as the home loading twice.
+					if (!built) loadRows()
 				}
 			}
 		}
@@ -254,6 +298,50 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		for (row in rows) row.addToRowsAdapter(requireContext(), cardPresenter, rowsAdapter)
 
 		wireUpLiveTvSiblingRows(rowsAdapter)
+
+		Timber.i("Showing %d home rows", rowsAdapter.size())
+
+		// The rows are in place but the library rows fill themselves in asynchronously, so keep the
+		// loading overlay up until they are done instead of letting the user watch them pop in.
+		watchLibraryRowsLoading(rowsAdapter)
+	}
+
+	/** Shows or hides the loading overlay. Safe to call from any thread. */
+	private fun setLoading(loading: Boolean) {
+		if (_loading.value == loading) return
+
+		_loading.value = loading
+		Timber.i("Home loading overlay %s", if (loading) "shown" else "hidden")
+	}
+
+	/**
+	 * Keeps the loading overlay up until every library row finished its first retrieve. The rows are
+	 * added empty and filled in by their own request, so without this the home visibly rebuilds
+	 * itself while the user is already looking at it.
+	 *
+	 * The timeout guards against a request that never reports back.
+	 */
+	private fun watchLibraryRowsLoading(rowsAdapter: MutableObjectAdapter<Row>) {
+		/** Whether every library row on the home has finished retrieving its items. */
+		fun librariesLoaded(): Boolean {
+			for (index in 0 until rowsAdapter.size()) {
+				val rowAdapter = (rowsAdapter.get(index) as? ListRow)?.adapter as? ItemRowAdapter ?: continue
+				if (rowAdapter.queryType != QueryType.Views) continue
+				if (rowAdapter.isCurrentlyRetrieving) return false
+			}
+
+			return true
+		}
+
+		libraryLoadWatchdog?.cancel()
+		libraryLoadWatchdog = lifecycleScope.launch(Dispatchers.Main) {
+			val deadline = System.currentTimeMillis() + LIBRARY_LOAD_TIMEOUT_MS
+			while (System.currentTimeMillis() < deadline && !librariesLoaded()) {
+				delay(LIBRARY_LOAD_POLL_MS)
+			}
+
+			setLoading(false)
+		}
 	}
 
 	/** Lets the On Now row remove the Live TV buttons row when it has nothing to show. */
@@ -293,7 +381,11 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		// example the session was (re)created while the app was in the background, or the request
 		// failed because the app had been idle for a long time). Retry it so the user does not have
 		// to leave and re-enter the app to get the libraries back.
-		if (!rowsBuilt || adapter.size() == 0 || libraryRowsEmpty()) loadRows()
+		//
+		// The loader is only asked for when the rebuild is caused by missing libraries: an empty
+		// adapter already shows it, and a rebuild of a home that is on screen must stay invisible.
+		val librariesMissing = rowsBuilt && adapter.size() > 0 && libraryRowsEmpty()
+		if (!rowsBuilt || adapter.size() == 0 || librariesMissing) loadRows(showLoader = librariesMissing)
 
 		// Update audio queue
 		Timber.i("Updating audio queue in HomeFragment (onResume)")
