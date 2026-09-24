@@ -10,10 +10,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 
 @Composable
 fun CircularProgressIndicator(
@@ -35,7 +35,9 @@ fun CircularProgressIndicator(
 	Canvas(
 		modifier = modifier
 			.aspectRatio(1f)
-			.rotate(rotation)
+			// The rotation is read inside the draw phase so an animation frame only redraws the spinner
+			// instead of recomposing it.
+			.graphicsLayer { rotationZ = rotation }
 	) {
 		drawArc(
 			color = color,

@@ -77,6 +77,13 @@ class HomeFragment : Fragment() {
 				homeRows?.loading ?: MutableStateFlow(false)
 			}.collectAsState()
 
+			// The rows are hidden while the loader is up, so they only become focusable once they are
+			// revealed. Take the focus back at that point, otherwise the D-pad would have nothing to
+			// move through.
+			LaunchedEffect(loading) {
+				if (!loading) rowsFocusRequester.requestFocus()
+			}
+
 			Box(modifier = Modifier.fillMaxSize()) {
 				AndroidFragment<HomeRowsFragment>(
 					modifier = Modifier

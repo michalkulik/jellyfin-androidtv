@@ -3,6 +3,7 @@ package org.jellyfin.androidtv.ui.home
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
+import androidx.core.view.doOnPreDraw
 import androidx.leanback.app.RowsSupportFragment
 import androidx.leanback.widget.ListRow
 import androidx.leanback.widget.OnItemViewClickedListener
@@ -126,6 +127,12 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		private const val LIBRARY_LOAD_POLL_MS = 100L
 
 		/**
+		 * Safety net for the reveal: if the pre-draw callback never runs, the overlay must not cover the
+		 * home forever.
+		 */
+		private const val REVEAL_FALLBACK_MS = 3_000L
+
+		/**
 		 * How long to wait before the rebuild attempts start counting again. The cap alone must not be
 		 * permanent: a rebuild that keeps failing would otherwise leave the home empty until the app is
 		 * restarted, which is exactly the bug this guards against.
@@ -203,7 +210,12 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 		// The overlay only covers the home when there is nothing to look at yet, or when the rebuild
 		// was asked for because the libraries were missing. Refreshing a home that is already on
 		// screen must not blank it out.
-		if (showLoader || adapter.size() == 0) setLoading(true)
+		if (showLoader || adapter.size() == 0) {
+			// Keep the grid out of measure, layout and draw while the overlay animates: that work is
+			// expensive and runs on the main thread, so it would stall the animation.
+			view?.visibility = View.GONE
+			setLoading(true)
+		}
 
 		lifecycleScope.launch(Dispatchers.IO) {
 			var built = false
@@ -237,7 +249,7 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 				// Nothing was built, so there is nothing to wait for either: hiding the overlay lets the
 				// user see the (possibly empty) home instead of a spinner that would never stop. The
 				// resume retry picks the rows up again.
-				if (!built) setLoading(false)
+				if (!built) revealContent()
 
 				if (reloadRequested) {
 					reloadRequested = false
@@ -285,6 +297,11 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 
 	/** Replaces the rows of the adapter with [rows]. Runs on the main thread. */
 	private fun showRows(rows: List<HomeFragmentRow>) {
+		// The grid is kept out of measure, layout and draw while the loading overlay is up. Its first
+		// layout with content is expensive (it creates and measures every visible card) and runs on the
+		// main thread, which starved the overlay animation down to a couple of frames per second.
+		view?.visibility = View.GONE
+
 		@Suppress("UNCHECKED_CAST")
 		val rowsAdapter = adapter as MutableObjectAdapter<Row>
 		val cardPresenter = CardPresenter()
@@ -315,6 +332,26 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 	}
 
 	/**
+	 * Reveals the rows and only then hides the loading overlay.
+	 *
+	 * Making the grid visible costs one expensive measure/layout/draw pass. That pass is allowed to run
+	 * while the overlay still covers it, and the overlay is removed once the content has been laid out
+	 * (one shot pre-draw), so neither the animation nor the reveal is interrupted by it.
+	 */
+	private fun revealContent() {
+		val grid = view
+		if (grid == null || grid.visibility == View.VISIBLE) {
+			setLoading(false)
+			return
+		}
+
+		grid.visibility = View.VISIBLE
+		grid.doOnPreDraw { setLoading(false) }
+		// The pre-draw callback is expected to fire, but the overlay must never be able to get stuck.
+		grid.postDelayed({ setLoading(false) }, REVEAL_FALLBACK_MS)
+	}
+
+	/**
 	 * Keeps the loading overlay up until every library row finished its first retrieve. The rows are
 	 * added empty and filled in by their own request, so without this the home visibly rebuilds
 	 * itself while the user is already looking at it.
@@ -340,7 +377,7 @@ class HomeRowsFragment : RowsSupportFragment(), AudioEventListener, View.OnKeyLi
 				delay(LIBRARY_LOAD_POLL_MS)
 			}
 
-			setLoading(false)
+			revealContent()
 		}
 	}
 
