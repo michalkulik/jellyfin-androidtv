@@ -53,5 +53,11 @@ class MediaCodecCapabilitiesTest(
 
 	fun supportsVc1(): Boolean = codecQuery.hasCodecForMime(MimeTypes.VIDEO_VC1)
 
+	/**
+	 * Whether the device can decode MPEG-4 Part 2 (DivX/Xvid). Hardware and, when the user allows them,
+	 * software decoders are both accepted; the profile falls back to transcoding when neither exists.
+	 */
+	fun supportsMpeg4(): Boolean = codecQuery.hasCodecForMime(MimeTypes.VIDEO_MP4V)
+
 	fun getMaxResolution(mime: String): Size = codecQuery.getMaxResolution(mime)
 }

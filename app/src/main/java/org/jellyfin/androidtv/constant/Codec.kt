@@ -65,6 +65,8 @@ object Codec {
 		const val HEVC = "hevc"
 		const val MPEG = "mpeg"
 		const val MPEG2VIDEO = "mpeg2video"
+		// MPEG-4 Part 2, which is what DivX and Xvid files (usually .avi) contain.
+		const val MPEG4 = "mpeg4"
 		const val VP8 = "vp8"
 		const val VP9 = "vp9"
 		const val AV1 = "av1"

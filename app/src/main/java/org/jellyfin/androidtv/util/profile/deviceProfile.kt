@@ -12,6 +12,7 @@ import org.jellyfin.androidtv.preference.constant.HdrOverrideMode
 import org.jellyfin.androidtv.util.profile.codec.isPassthroughAudioAvailable
 import org.jellyfin.sdk.model.ServerVersion
 import org.jellyfin.sdk.model.api.CodecType
+import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.DlnaProfileType
 import org.jellyfin.sdk.model.api.EncodingContext
 import org.jellyfin.sdk.model.api.MediaStreamProtocol
@@ -94,7 +95,7 @@ fun createDeviceProfile(
 	context: Context,
 	userPreferences: UserPreferences,
 	serverVersion: ServerVersion,
-) = createDeviceProfile(
+): DeviceProfile = createDeviceProfile(
 	mediaTest = MediaCodecCapabilitiesTest(userPreferences[UserPreferences.softwareCodecsEnabled]),
 	maxBitrate = userPreferences.getMaxBitrate(),
 	isAC3PrefEnabled = userPreferences.isBitstreamAudioEnabled(context, BitstreamAudioFormat.AC3),
@@ -149,10 +150,13 @@ fun createDeviceProfile(
 	val supportsAV1 = mediaTest.supportsAV1()
 	val supportsAV1Main10 = mediaTest.supportsAV1Main10()
 	val supportsVC1 = mediaTest.supportsVc1()
+	// MPEG-4 Part 2 is what DivX/Xvid files contain; those are almost always .avi.
+	val supportsMpeg4 = mediaTest.supportsMpeg4()
 	val maxResolutionAVC = mediaTest.getMaxResolution(MimeTypes.VIDEO_H264)
 	val maxResolutionHevc = mediaTest.getMaxResolution(MimeTypes.VIDEO_H265)
 	val maxResolutionAV1 = mediaTest.getMaxResolution(MimeTypes.VIDEO_AV1)
 	val maxResolutionVC1 = mediaTest.getMaxResolution(MimeTypes.VIDEO_VC1)
+	val maxResolutionMpeg4 = mediaTest.getMaxResolution(MimeTypes.VIDEO_MP4V)
 
 	/// HDR capabilities
 
@@ -227,6 +231,9 @@ fun createDeviceProfile(
 
 		container(
 			Codec.Container.ASF,
+			// DivX/Xvid files are AVI. Without this the server sees no matching container and
+			// transcodes them even when the device can decode MPEG-4 Part 2 directly.
+			Codec.Container.AVI,
 			Codec.Container.HLS,
 			Codec.Container.M4V,
 			Codec.Container.MKV,
@@ -247,6 +254,7 @@ fun createDeviceProfile(
 			Codec.Video.HEVC,
 			Codec.Video.MPEG,
 			Codec.Video.MPEG2VIDEO,
+			Codec.Video.MPEG4,
 			Codec.Video.VC1,
 			Codec.Video.VP8,
 			Codec.Video.VP9,
@@ -414,6 +422,22 @@ fun createDeviceProfile(
 		}
 	}
 
+	// MPEG-4 Part 2 profile (DivX/Xvid). Mirrors VC1: the codec stays in the direct play list, and
+	// when the device has no decoder at all (neither hardware nor, if allowed, software) the condition
+	// asks for a profile of "none", which no real stream has, so the server transcodes instead of
+	// handing the player a file it cannot open.
+	codecProfile {
+		type = CodecType.VIDEO
+		codec = Codec.Video.MPEG4
+
+		conditions {
+			when {
+				!supportsMpeg4 -> ProfileConditionValue.VIDEO_PROFILE equals "none"
+				else -> ProfileConditionValue.VIDEO_PROFILE notEquals "none"
+			}
+		}
+	}
+
 	// Get max resolutions for common codecs
 	// AVC
 	codecProfile {
@@ -456,6 +480,17 @@ fun createDeviceProfile(
 		conditions {
 			ProfileConditionValue.WIDTH lowerThanOrEquals maxResolutionVC1.width
 			ProfileConditionValue.HEIGHT lowerThanOrEquals maxResolutionVC1.height
+		}
+	}
+
+	// MPEG-4 Part 2
+	codecProfile {
+		type = CodecType.VIDEO
+		codec = Codec.Video.MPEG4
+
+		conditions {
+			ProfileConditionValue.WIDTH lowerThanOrEquals maxResolutionMpeg4.width
+			ProfileConditionValue.HEIGHT lowerThanOrEquals maxResolutionMpeg4.height
 		}
 	}
 
