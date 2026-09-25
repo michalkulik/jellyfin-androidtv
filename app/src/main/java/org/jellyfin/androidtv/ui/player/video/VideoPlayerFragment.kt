@@ -7,6 +7,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.compose.content
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import org.jellyfin.androidtv.data.service.BackgroundService
 import org.jellyfin.androidtv.ui.base.BaseScreen
 import org.jellyfin.androidtv.ui.playback.VideoQueueManager
 import org.jellyfin.androidtv.ui.playback.rewrite.RewriteMediaManager
@@ -25,6 +26,7 @@ class VideoPlayerFragment : Fragment() {
 	private val videoQueueManager by inject<VideoQueueManager>()
 	private val playbackManager by inject<PlaybackManager>()
 	private val api by inject<ApiClient>()
+	private val backgroundService by inject<BackgroundService>()
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -59,12 +61,17 @@ class VideoPlayerFragment : Fragment() {
 	override fun onPause() {
 		super.onPause()
 
+		// Another screen is taking over, so show the app background again.
+		backgroundService.enable()
 		playbackManager.state.pause()
 	}
 
 	override fun onResume() {
 		super.onResume()
 
+		// Hide the app background while the video is on screen, otherwise it shows through the side bars.
+		// Tied to resume/pause because separate player instances could otherwise reorder create/destroy.
+		backgroundService.disable()
 		playbackManager.state.unpause()
 	}
 

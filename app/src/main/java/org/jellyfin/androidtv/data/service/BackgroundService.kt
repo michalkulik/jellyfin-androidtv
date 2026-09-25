@@ -139,6 +139,15 @@ class BackgroundService(
 		_enabled.value = false
 	}
 
+	/**
+	 * Show the backgrounds again. Counterpart of [disable], used by whatever hid them (for example the video
+	 * player) once it goes away. [disable] keeps the loaded backdrops, so this restores what was on screen
+	 * before instead of leaving the next screen without a background.
+	 */
+	fun enable() {
+		_enabled.value = true
+	}
+
 	internal fun update() {
 		val now = Instant.now().toEpochMilli()
 		if (lastBackgroundTimerUpdate > now - TRANSITION_DURATION.inWholeMilliseconds)

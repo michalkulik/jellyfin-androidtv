@@ -167,8 +167,6 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
                 leanbackOverlayFragment.hideOverlay();
             }
         };
-
-        backgroundService.getValue().disable();
     }
 
     @Nullable
@@ -661,6 +659,12 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     public void onResume() {
         super.onResume();
 
+        // Hide the app background for as long as this player is on screen. It is tied to resume/pause rather
+        // than create/destroy: with separate instances those can interleave (the old player is destroyed
+        // after the new one was created), which re-enabled the background underneath the running video and
+        // made it show through the side bars. Resume/pause cannot reorder that way.
+        backgroundService.getValue().disable();
+
         // Close player when resuming without a valid playback controller
         if (playbackControllerContainer.getValue().getPlaybackController() == null || !playbackControllerContainer.getValue().getPlaybackController().hasFragment()) {
             closePlayer();
@@ -686,6 +690,10 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     @Override
     public void onPause() {
         super.onPause();
+
+        // Show the app background again: another screen is taking over now.
+        backgroundService.getValue().enable();
+
         if (mItemsToPlay == null || mItemsToPlay.isEmpty()) return;
 
         setPlayPauseActionState(0);
