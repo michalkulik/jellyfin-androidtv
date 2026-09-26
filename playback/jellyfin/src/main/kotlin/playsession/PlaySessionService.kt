@@ -1,6 +1,8 @@
 package org.jellyfin.playback.jellyfin.playsession
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -23,6 +25,7 @@ import org.jellyfin.sdk.model.api.QueueItem
 import org.jellyfin.sdk.model.extensions.inWholeTicks
 import timber.log.Timber
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.seconds
 import org.jellyfin.sdk.model.api.RepeatMode as SdkRepeatMode
 
 class PlaySessionService(
@@ -37,6 +40,24 @@ class PlaySessionService(
 				PlayState.ERROR -> sendStreamStop()
 			}
 		}.launchIn(coroutineScope)
+
+		// Keep the server position up to date while playing. The state changes above only cover
+		// start, pause and stop, so without this a session that ends abruptly (app killed, no stop
+		// event) would keep the position from when it started.
+		coroutineScope.launch {
+			state.playState.collectLatest { playState ->
+				if (playState != PlayState.PLAYING) return@collectLatest
+				while (true) {
+					delay(PROGRESS_UPDATE_INTERVAL)
+					sendStreamUpdate()
+				}
+			}
+		}
+	}
+
+	private companion object {
+		/** How often the playback position is reported to the server while playing. */
+		private val PROGRESS_UPDATE_INTERVAL = 10.seconds
 	}
 
 	private val MediaConversionMethod.playMethod

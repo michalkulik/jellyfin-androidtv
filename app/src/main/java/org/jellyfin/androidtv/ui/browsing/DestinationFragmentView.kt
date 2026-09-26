@@ -141,12 +141,15 @@ class DestinationFragmentView @JvmOverloads constructor(
 		if (fragment == null) {
 			fragment = fragmentManager.fragmentFactory.instantiate(context.classLoader, entry.name.name).apply {
 				setInitialSavedState(entry.savedState)
+				// Arguments are set only here, while the fragment is still detached from any host.
+				// Calling setArguments() on a fragment that is already added after the state was saved
+				// throws "Fragment already added and state has been saved", which crashed the app when
+				// the player was closed while the activity was stopping. Existing entries keep the
+				// arguments they were created with.
+				arguments = entry.arguments
 			}
 			entry.fragment = fragment
 		}
-
-		// Update arguments
-		fragment.arguments = entry.arguments
 
 		transaction.apply {
 			// Set options

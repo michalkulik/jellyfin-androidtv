@@ -392,7 +392,17 @@ public class PlaybackController implements PlaybackControllerNotifiable {
                     finishedInitialSeek = true;
                 } else if (mSeekPosition != -1) {
                     // the initial seek for direct play and hls hasn't happened yet
-                    newPos = mSeekPosition;
+                    // Report the requested position, but as soon as the player moved past it use the
+                    // real position instead, so the reported position can never stay pinned to a
+                    // resume point when the initial seek was skipped or never completed.
+                    long playerPosition = mVideoManager.getCurrentPosition();
+                    if (playerPosition > mSeekPosition) {
+                        newPos = playerPosition;
+                        mSeekPosition = -1;
+                        finishedInitialSeek = true;
+                    } else {
+                        newPos = mSeekPosition;
+                    }
                 }
                 wasSeeking = false;
             }
@@ -836,6 +846,9 @@ public class PlaybackController implements PlaybackControllerNotifiable {
     }
 
     public void pause() {
+        // Refresh before the state changes so the pause is reported at the real position instead of
+        // the value of the previous progress update.
+        if (mPlaybackState != PlaybackState.PAUSED) refreshCurrentPosition();
         Timber.i("pause called at %s", mCurrentPosition);
         // if playback is paused and the seekbar is scrubbed, it will call pause even if already paused
         if (mPlaybackState == PlaybackState.PAUSED) {
