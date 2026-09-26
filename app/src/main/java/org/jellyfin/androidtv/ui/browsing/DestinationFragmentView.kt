@@ -119,8 +119,14 @@ class DestinationFragmentView @JvmOverloads constructor(
 	private fun saveCurrentFragmentState() {
 		if (history.isEmpty()) return
 
-		// Update the top-most history entry with state from current fragment
-		val fragment = requireNotNull(fragmentManager.findFragmentByTag(FRAGMENT_TAG_CONTENT))
+		// Update the top-most history entry with state from current fragment. There may not be a content
+		// fragment yet when this runs while the history was just restored, and there is nothing to save
+		// then - the state is kept as it is instead of failing the whole navigation.
+		val fragment = fragmentManager.findFragmentByTag(FRAGMENT_TAG_CONTENT)
+		if (fragment == null) {
+			Timber.w("No content fragment to save the state of")
+			return
+		}
 		history[history.size - 1].savedState = fragmentManager.saveFragmentInstanceState(fragment)
 	}
 

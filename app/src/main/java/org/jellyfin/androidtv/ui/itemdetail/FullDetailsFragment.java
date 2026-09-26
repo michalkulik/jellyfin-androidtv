@@ -139,6 +139,18 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
 
     BaseItemDto mBaseItem;
 
+    /**
+     * Item that was loaded before this fragment was started, waiting to be applied in [onStart].
+     */
+    @Nullable
+    private BaseItemDto mPendingItem;
+
+    /**
+     * Overview row that was built while this fragment was not started, waiting to be shown in [onStart].
+     */
+    @Nullable
+    private MyDetailsOverviewRow mPendingOverviewRow;
+
     private ArrayList<MediaSourceInfo> versions;
     private final Lazy<org.jellyfin.sdk.api.client.ApiClient> api = inject(org.jellyfin.sdk.api.client.ApiClient.class);
     private final Lazy<UserPreferences> userPreferences = inject(UserPreferences.class);
@@ -216,6 +228,43 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
         return binding.getRoot();
     }
 
+    @Override
+    public void onStart() {
+        super.onStart();
+
+        // The item is requested from onCreateView, so its response can arrive before this fragment is
+        // started - for example when the activity is coming back from the background. The lifecycle state
+        // is only updated after onStart() returned, so the work is handed to the next loop turn; checking
+        // the state here directly would see CREATED and defer it to a start that already happened.
+        View view = getView();
+        if (view != null && (mPendingItem != null || mPendingOverviewRow != null)) {
+            view.post(this::applyPendingItem);
+        }
+    }
+
+    /**
+     * Applies the item and overview row that arrived before this fragment was started. Without it the
+     * work done during the start was thrown away, which left the screen showing nothing but the
+     * background image, without even a play button, until the app was restarted.
+     */
+    private void applyPendingItem() {
+        BaseItemDto pendingItem = mPendingItem;
+        MyDetailsOverviewRow pendingRow = mPendingOverviewRow;
+        mPendingItem = null;
+        mPendingOverviewRow = null;
+
+        if (pendingItem != null) {
+            // Apply the item directly instead of going through setBaseItem(): the lifecycle guard there
+            // would only defer the work again during this same start. Building the item always rebuilds
+            // the overview row, so a row that was pending at the same time is not shown separately.
+            applyBaseItem(pendingItem);
+        } else if (pendingRow != null) {
+            // The item was already applied before the fragment was stopped, only the row still has to be
+            // put on screen.
+            showDetailsOverviewRow(pendingRow);
+        }
+    }
+
     int getResumePreroll() {
         try {
             return Integer.parseInt(KoinJavaComponent.<UserPreferences>get(UserPreferences.class).get(UserPreferences.Companion.getResumeSubtractDuration())) * 1000;
@@ -239,6 +288,9 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
             @Override
             public void run() {
                 if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) return;
+                // The item can still be loading when this runs, for example right after the fragment was
+                // created; there is nothing to refresh in that case.
+                if (mBaseItem == null) return;
 
                 Instant lastPlaybackTime = dataRefreshService.getValue().getLastPlayback();
                 Timber.d("current time %s last playback event time %s last refresh time %s", Instant.now().toEpochMilli(), lastPlaybackTime, mLastUpdated.toEpochMilli());
@@ -470,25 +522,46 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
         protected void onPostExecute(MyDetailsOverviewRow detailsOverviewRow) {
             super.onPostExecute(detailsOverviewRow);
 
-            if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) return;
+            if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) {
+                // The row is done but the screen is not started (the activity went to the background in the
+                // meantime). Keep it for onStart instead of dropping it, otherwise the screen would stay
+                // empty with only the background image on it.
+                mPendingOverviewRow = detailsOverviewRow;
+                return;
+            }
 
-            ClassPresenterSelector ps = new ClassPresenterSelector();
-            ps.addClassPresenter(MyDetailsOverviewRow.class, mDorPresenter);
-            mListRowPresenter = new CustomListRowPresenter(Utils.convertDpToPixel(requireContext(), 10));
-            ps.addClassPresenter(ListRow.class, mListRowPresenter);
-            mRowsAdapter = new MutableObjectAdapter<Row>(ps);
-            mRowsFragment.setAdapter(mRowsAdapter);
-            mRowsAdapter.add(detailsOverviewRow);
-
-            updateInfo(detailsOverviewRow.getItem());
-            addAdditionalRows(mRowsAdapter);
-
+            showDetailsOverviewRow(detailsOverviewRow);
         }
     }
 
-    public void setBaseItem(BaseItemDto item) {
-        if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) return;
+    /** Puts the overview row and the additional rows of the current item on screen. */
+    private void showDetailsOverviewRow(MyDetailsOverviewRow detailsOverviewRow) {
+        ClassPresenterSelector ps = new ClassPresenterSelector();
+        ps.addClassPresenter(MyDetailsOverviewRow.class, mDorPresenter);
+        mListRowPresenter = new CustomListRowPresenter(Utils.convertDpToPixel(requireContext(), 10));
+        ps.addClassPresenter(ListRow.class, mListRowPresenter);
+        mRowsAdapter = new MutableObjectAdapter<Row>(ps);
+        mRowsFragment.setAdapter(mRowsAdapter);
+        mRowsAdapter.add(detailsOverviewRow);
 
+        updateInfo(detailsOverviewRow.getItem());
+        addAdditionalRows(mRowsAdapter);
+    }
+
+    public void setBaseItem(BaseItemDto item) {
+        if (!getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED)) {
+            // The item arrived before this fragment was started. Keep it and apply it in onStart rather
+            // than dropping it, which used to leave the screen on the previous background image with no
+            // play button until the app was restarted.
+            mPendingItem = item;
+            return;
+        }
+
+        applyBaseItem(item);
+    }
+
+    /** Applies the item and starts building its overview row without any lifecycle checks. */
+    private void applyBaseItem(BaseItemDto item) {
         mBaseItem = item;
         backgroundService.getValue().setBackground(item);
         if (mBaseItem != null) {
