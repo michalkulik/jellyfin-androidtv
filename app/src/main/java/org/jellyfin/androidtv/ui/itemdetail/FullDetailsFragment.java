@@ -295,9 +295,11 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
                 Instant lastPlaybackTime = dataRefreshService.getValue().getLastPlayback();
                 Timber.d("current time %s last playback event time %s last refresh time %s", Instant.now().toEpochMilli(), lastPlaybackTime, mLastUpdated.toEpochMilli());
 
-                // if last playback event exists, and event time is greater than last sync or within 2 seconds of current time
-                // the third condition accounts for a situation where a sync (dataRefresh) coincides with the end of playback
-                if (lastPlaybackTime != null && (lastPlaybackTime.isAfter(mLastUpdated) || Instant.now().toEpochMilli() - lastPlaybackTime.toEpochMilli() < 2000) && mBaseItem.getType() != BaseItemKind.MUSIC_ARTIST) {
+                // Refresh whenever something was played. Comparing the playback time with mLastUpdated is
+                // not enough: when this screen is recreated after the player closes, loading the item can
+                // finish before the stop report is stored, which leaves the resume position stale even
+                // though mLastUpdated is newer than the playback event.
+                if (lastPlaybackTime != null && mBaseItem.getType() != BaseItemKind.MUSIC_ARTIST) {
                     BaseItemDto lastPlayedItem = dataRefreshService.getValue().getLastPlayedItem();
                     if (mBaseItem.getType() == BaseItemKind.EPISODE && lastPlayedItem != null && !mBaseItem.getId().equals(lastPlayedItem.getId()) && lastPlayedItem.getType() == BaseItemKind.EPISODE) {
                         Timber.i("Re-loading after new episode playback");
