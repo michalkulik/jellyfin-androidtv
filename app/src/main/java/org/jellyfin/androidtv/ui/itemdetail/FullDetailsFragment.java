@@ -301,10 +301,14 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
                 // though mLastUpdated is newer than the playback event.
                 if (lastPlaybackTime != null && mBaseItem.getType() != BaseItemKind.MUSIC_ARTIST) {
                     BaseItemDto lastPlayedItem = dataRefreshService.getValue().getLastPlayedItem();
+                    // The pending redirect only applies to the first detail screen shown after playback, so
+                    // consume it here in both branches. It used to be cleared only when it redirected, which
+                    // left it set after returning to the played episode itself and made the next episode
+                    // the user opened (for example from "Continue watching") show the old one instead.
+                    dataRefreshService.getValue().setLastPlayedItem(null);
                     if (mBaseItem.getType() == BaseItemKind.EPISODE && lastPlayedItem != null && !mBaseItem.getId().equals(lastPlayedItem.getId()) && lastPlayedItem.getType() == BaseItemKind.EPISODE) {
                         Timber.i("Re-loading after new episode playback");
                         loadItem(lastPlayedItem.getId());
-                        dataRefreshService.getValue().setLastPlayedItem(null); //blank this out so a detail screen we back up to doesn't also do this
                     } else {
                         Timber.i("Updating info after playback");
                         FullDetailsFragmentHelperKt.getItem(FullDetailsFragment.this, mBaseItem.getId(), item -> {
