@@ -540,7 +540,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
             internalOptions.setSubtitleStreamIndex(forcedSubtitleIndex);
         }
         MediaSourceInfo currentMediaSource = getCurrentMediaSource();
-        if (forcedAudioLanguage != null) {
+        if (forcedAudioLanguage != null && currentMediaSource != null && currentMediaSource.getMediaStreams() != null) {
             // find the first audio stream with the requested language
             for (MediaStream stream : currentMediaSource.getMediaStreams()) {
                 if (stream.getType() == MediaStreamType.AUDIO && forcedAudioLanguage.equals(stream.getLanguage())) {
@@ -659,7 +659,7 @@ public class PlaybackController implements PlaybackControllerNotifiable {
             if (lastSubtitleLanguage.isEmpty()) {
                 // User explicitly disabled subtitles
                 mCurrentOptions.setSubtitleStreamIndex(null);
-            } else if (response.getMediaSource().getMediaStreams() != null) {
+            } else if (response.getMediaSource() != null && response.getMediaSource().getMediaStreams() != null) {
                 // Find subtitle stream matching saved language
                 Integer matchingIndex = null;
                 for (MediaStream stream : response.getMediaSource().getMediaStreams()) {
@@ -782,6 +782,9 @@ public class PlaybackController implements PlaybackControllerNotifiable {
 
     private void setDefaultAudioIndex(StreamInfo info) {
         if (mDefaultAudioIndex != -1)
+            return;
+
+        if (info == null || info.getMediaSource() == null)
             return;
 
         Integer lastChosenLanguage = lastChosenLanguageAudioTrack(info.getMediaSource());
