@@ -141,8 +141,13 @@ class UserPreferences(context: Context) : SharedPreferenceStore(
 
 		/**
 		 * EAC3 bitstream device profile override.
+		 *
+		 * Defaults to [BitstreamAudioMode.DISABLE]: the automatic passthrough detection trusts the
+		 * device's reported EAC3 support, but some devices claim it and then output noise (or fail the
+		 * player) when the stream is passed through. Decoding/transcoding it is the safe default; users
+		 * with a receiver that really handles EAC3 can turn bitstream back on.
 		 */
-		var bitstreamEac3 = enumPreference("bitstream_eac3_mode", BitstreamAudioMode.AUTO)
+		var bitstreamEac3 = enumPreference("bitstream_eac3_mode", BitstreamAudioMode.DISABLE)
 
 		/**
 		 * DTS bitstream device profile override.
