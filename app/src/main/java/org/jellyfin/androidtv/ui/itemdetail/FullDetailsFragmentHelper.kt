@@ -40,6 +40,24 @@ import java.util.UUID
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Some servers can return a stale playback position (for example right after the player was closed).
+ * The app knows the position it last reported to the server, so use it when it is further along for
+ * the same item. Without this, an episode watched to the end could resume from a much earlier point
+ * because the item was loaded before the stop event was stored on the server.
+ */
+fun FullDetailsFragment.applyKnownPlaybackPosition(dataRefreshService: DataRefreshService) {
+	val item = mBaseItem ?: return
+	val lastItemId = dataRefreshService.lastPlaybackItemId ?: return
+	if (lastItemId != item.id) return
+
+	val lastPosition = dataRefreshService.lastPlaybackPositionTicks ?: return
+	val serverPosition = item.userData?.playbackPositionTicks ?: 0
+	if (lastPosition <= serverPosition) return
+
+	mBaseItem = item.copyWithUserData(item.userData?.copy(playbackPositionTicks = lastPosition))
+}
+
 fun FullDetailsFragment.deleteItem(
 	api: ApiClient,
 	item: BaseItemDto,

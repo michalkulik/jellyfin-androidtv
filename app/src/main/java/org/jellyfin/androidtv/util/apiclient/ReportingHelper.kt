@@ -107,6 +107,8 @@ class ReportingHelper(
 
 		// Update dataRefreshService
 		dataRefreshService.lastPlayback = Instant.now()
+		dataRefreshService.lastPlaybackPositionTicks = position
+		dataRefreshService.lastPlaybackItemId = item.id
 		when (item.type) {
 			BaseItemKind.MOVIE -> dataRefreshService.lastMoviePlayback = Instant.now()
 			BaseItemKind.EPISODE -> dataRefreshService.lastTvPlayback = Instant.now()

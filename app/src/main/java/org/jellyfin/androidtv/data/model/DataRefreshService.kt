@@ -12,4 +12,10 @@ class DataRefreshService {
 	var lastLibraryChange: Instant? = null
 	var lastFavoriteUpdate: Instant? = null
 	var lastPlayedItem: BaseItemDto? = null
+
+	/** Position (ticks) of the last reported playback stop, used to show the correct resume point. */
+	var lastPlaybackPositionTicks: Long? = null
+
+	/** Item of the last reported playback stop. */
+	var lastPlaybackItemId: UUID? = null
 }

@@ -315,6 +315,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
                             if (item == null) return null;
 
                             mBaseItem = item;
+                            FullDetailsFragmentHelperKt.applyKnownPlaybackPosition(FullDetailsFragment.this, dataRefreshService.getValue());
                             if (mResumeButton != null) {
                                 boolean resumeVisible = (mBaseItem.getType() == BaseItemKind.SERIES && !mBaseItem.getUserData().getPlayed()) || JavaCompat.getCanResume(mBaseItem);
                                 mResumeButton.setVisibility(resumeVisible ? View.VISIBLE : View.GONE);
@@ -569,6 +570,7 @@ public class FullDetailsFragment extends Fragment implements RecordingIndicatorV
     /** Applies the item and starts building its overview row without any lifecycle checks. */
     private void applyBaseItem(BaseItemDto item) {
         mBaseItem = item;
+        FullDetailsFragmentHelperKt.applyKnownPlaybackPosition(this, dataRefreshService.getValue());
         backgroundService.getValue().setBackground(item);
         if (mBaseItem != null) {
             if (mChannelId != null) {
