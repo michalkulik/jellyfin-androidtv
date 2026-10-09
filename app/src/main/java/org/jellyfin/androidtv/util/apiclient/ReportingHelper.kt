@@ -5,11 +5,13 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jellyfin.androidtv.data.compat.StreamInfo
 import org.jellyfin.androidtv.data.model.DataRefreshService
 import org.jellyfin.androidtv.ui.playback.PlaybackController
 import org.jellyfin.sdk.api.client.ApiClient
 import org.jellyfin.sdk.api.client.extensions.playStateApi
+import org.jellyfin.sdk.api.client.extensions.userLibraryApi
 import org.jellyfin.sdk.model.api.BaseItemDto
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.PlaybackOrder
@@ -98,21 +100,37 @@ class ReportingHelper(
 			failed = false,
 		)
 
+		// Update dataRefreshService
+		dataRefreshService.lastPlayback = Instant.now()
+		dataRefreshService.lastPlaybackItemId = item.id
+		dataRefreshService.lastPlaybackUserData = null
+		when (item.type) {
+			BaseItemKind.MOVIE -> dataRefreshService.lastMoviePlayback = Instant.now()
+			BaseItemKind.EPISODE -> dataRefreshService.lastTvPlayback = Instant.now()
+			else -> Unit
+		}
+
 		lifecycleOwner.lifecycleScope.launch(Dispatchers.IO + NonCancellable) {
 			Timber.i("Reporting ${item.name} playback stopped at $position")
 			runCatching {
 				api.playStateApi.reportPlaybackStopped(info)
 			}.onFailure { error -> Timber.e(error, "Failed to report stopped playback!") }
-		}
 
-		// Update dataRefreshService
-		dataRefreshService.lastPlayback = Instant.now()
-		dataRefreshService.lastPlaybackPositionTicks = position
-		dataRefreshService.lastPlaybackItemId = item.id
-		when (item.type) {
-			BaseItemKind.MOVIE -> dataRefreshService.lastMoviePlayback = Instant.now()
-			BaseItemKind.EPISODE -> dataRefreshService.lastTvPlayback = Instant.now()
-			else -> Unit
+			// Re-read the item after the stop was stored. The server applies the resume settings
+			// (minimum/maximum watched percentage) while storing the stop, so this is the server's
+			// own resume decision. The detail screen can load the item before the stop is stored
+			// and would otherwise show a stale resume point.
+			val stoppedItem = runCatching {
+				api.userLibraryApi.getItem(item.id).content
+			}.onFailure { error -> Timber.w(error, "Failed to refresh ${item.name} after playback") }
+				.getOrNull()
+
+			withContext(Dispatchers.Main) {
+				// Another episode may have started while this request was in flight.
+				if (dataRefreshService.lastPlaybackItemId == item.id) {
+					dataRefreshService.lastPlaybackUserData = stoppedItem?.userData
+				}
+			}
 		}
 	}
 }

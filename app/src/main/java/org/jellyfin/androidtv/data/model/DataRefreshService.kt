@@ -1,6 +1,7 @@
 package org.jellyfin.androidtv.data.model
 
 import org.jellyfin.sdk.model.api.BaseItemDto
+import org.jellyfin.sdk.model.api.UserItemDataDto
 import java.time.Instant
 import java.util.UUID
 
@@ -13,9 +14,14 @@ class DataRefreshService {
 	var lastFavoriteUpdate: Instant? = null
 	var lastPlayedItem: BaseItemDto? = null
 
-	/** Position (ticks) of the last reported playback stop, used to show the correct resume point. */
-	var lastPlaybackPositionTicks: Long? = null
-
 	/** Item of the last reported playback stop. */
 	var lastPlaybackItemId: UUID? = null
+
+	/**
+	 * The server's user data for the item immediately after the last reported playback stop. It
+	 * already reflects the server's resume settings (the minimum/maximum watched percentage and
+	 * the minimum resume duration), so the detail screen uses it instead of the raw stop position
+	 * when the item was loaded before the server stored the stop event.
+	 */
+	var lastPlaybackUserData: UserItemDataDto? = null
 }

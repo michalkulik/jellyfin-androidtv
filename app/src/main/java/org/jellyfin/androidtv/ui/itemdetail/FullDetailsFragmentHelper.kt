@@ -42,20 +42,21 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Some servers can return a stale playback position (for example right after the player was closed).
- * The app knows the position it last reported to the server, so use it when it is further along for
- * the same item. Without this, an episode watched to the end could resume from a much earlier point
- * because the item was loaded before the stop event was stored on the server.
+ * The app remembers the server's user data for the item right after the last reported playback stop,
+ * which already honours the server's resume settings (the minimum/maximum watched percentage and the
+ * minimum resume duration). Use it for the same item instead of the raw stop position, so an episode
+ * loaded before the stop was stored still shows the correct resume point without treating a finished
+ * (or barely started) item as resumable.
  */
 fun FullDetailsFragment.applyKnownPlaybackPosition(dataRefreshService: DataRefreshService) {
 	val item = mBaseItem ?: return
 	val lastItemId = dataRefreshService.lastPlaybackItemId ?: return
 	if (lastItemId != item.id) return
 
-	val lastPosition = dataRefreshService.lastPlaybackPositionTicks ?: return
-	val serverPosition = item.userData?.playbackPositionTicks ?: 0
-	if (lastPosition <= serverPosition) return
+	val serverUserData = dataRefreshService.lastPlaybackUserData ?: return
+	if (item.userData == serverUserData) return
 
-	mBaseItem = item.copyWithUserData(item.userData?.copy(playbackPositionTicks = lastPosition))
+	mBaseItem = item.copyWithUserData(serverUserData)
 }
 
 fun FullDetailsFragment.deleteItem(
@@ -154,6 +155,10 @@ fun FullDetailsFragment.togglePlayed() {
 		)
 		mBaseItem = mBaseItem.copyWithUserData(userData)
 		mWatchedToggleButton.isActivated = userData.played
+
+		// The remembered post-report user data would undo this manual change.
+		dataRefreshService.lastPlaybackItemId = null
+		dataRefreshService.lastPlaybackUserData = null
 
 		// Adjust resume
 		mResumeButton?.apply {
