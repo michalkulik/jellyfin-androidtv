@@ -19,7 +19,17 @@ private val modelsWithUnreportedDoviProfile7Support = listOf(
 	"SHIELD Android TV", // NVIDIA Shield TV Pro 2019 (mdarcy)
 )
 
+/**
+ * List of device models whose hardware HEVC decoder reports support (including Main 10)
+ * but fails to actually play HEVC, which leaves playback stuck on a black screen.
+ * HEVC must not be advertised for these models so the server transcodes to H.264 instead.
+ */
+private val modelsWithBrokenHevcHardware = listOf(
+	"DCTIW362_PLAY", // PlayBoxTV (Sagemcom DCTIW362_PLAY, Android 9)
+)
+
 object KnownDefects {
 	val hevcDoviHdr10PlusBug = Build.MODEL in modelsWithDoViHdr10PlusBug
 	val unreportedDoviProfile7Support = Build.MODEL in modelsWithUnreportedDoviProfile7Support
+	val brokenHevcHardware = Build.MODEL in modelsWithBrokenHevcHardware
 }

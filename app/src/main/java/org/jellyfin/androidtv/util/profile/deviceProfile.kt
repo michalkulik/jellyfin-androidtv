@@ -138,8 +138,11 @@ fun createDeviceProfile(
 		}
 	}.toTypedArray()
 
-	val supportsHevc = mediaTest.supportsHevc()
-	val supportsHevcMain10 = mediaTest.supportsHevcMain10()
+	// Some devices report HEVC support but their hardware decoder cannot actually play it.
+	// Ignore HEVC entirely for those models so the server always transcodes to H.264.
+	val hevcHardwareBroken = KnownDefects.brokenHevcHardware
+	val supportsHevc = mediaTest.supportsHevc() && !hevcHardwareBroken
+	val supportsHevcMain10 = mediaTest.supportsHevcMain10() && !hevcHardwareBroken
 	val hevcMainLevel = userHEVCLevel ?: mediaTest.getHevcMainLevel()
 	val hevcMain10Level = userHEVCLevel ?: mediaTest.getHevcMain10Level()
 	val supportsAVC = mediaTest.supportsAVC()
@@ -163,10 +166,10 @@ fun createDeviceProfile(
 	val supportsAV1HDR10Plus = mediaTest.supportsAV1HDR10Plus()
 
 	// HEVC
-	val supportsHevcDolbyVision = mediaTest.supportsHevcDolbyVision()
-	val supportsHevcDolbyVisionEL = mediaTest.supportsHevcDolbyVisionEL()
-	val supportsHevcHDR10 = mediaTest.supportsHevcHDR10()
-	val supportsHevcHDR10Plus = mediaTest.supportsHevcHDR10Plus()
+	val supportsHevcDolbyVision = mediaTest.supportsHevcDolbyVision() && !hevcHardwareBroken
+	val supportsHevcDolbyVisionEL = mediaTest.supportsHevcDolbyVisionEL() && !hevcHardwareBroken
+	val supportsHevcHDR10 = mediaTest.supportsHevcHDR10() && !hevcHardwareBroken
+	val supportsHevcHDR10Plus = mediaTest.supportsHevcHDR10Plus() && !hevcHardwareBroken
 
 	name = "AndroidTV-Default"
 
