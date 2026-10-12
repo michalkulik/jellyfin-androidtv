@@ -7,9 +7,6 @@ import android.os.Handler;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import androidx.leanback.media.PlaybackTransportControlGlue;
@@ -19,7 +16,6 @@ import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.PlaybackControlsRow;
 import androidx.leanback.widget.PlaybackRowPresenter;
 import androidx.leanback.widget.PlaybackTransportRowPresenter;
-import androidx.leanback.widget.PlaybackTransportRowView;
 import androidx.leanback.widget.RowPresenter;
 
 import org.jellyfin.androidtv.R;
@@ -79,9 +75,6 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
 
     private final Handler mHandler = new Handler();
     private Runnable mRefreshEndTime;
-    private Runnable mRefreshViewVisibility;
-
-    private LinearLayout mButtonRef;
 
     CustomPlaybackTransportControlGlue(Context context, VideoPlayerAdapter playerAdapter, PlaybackController playbackController) {
         super(context, playerAdapter);
@@ -94,20 +87,12 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
             }
         };
 
-        mRefreshViewVisibility = () -> {
-            if (mButtonRef != null && mButtonRef.getVisibility() != mEndsText.getVisibility())
-                mEndsText.setVisibility(mButtonRef.getVisibility());
-            else
-                mHandler.postDelayed(mRefreshViewVisibility, 100);
-        };
-
         initActions(context);
     }
 
     @Override
     protected void onDetachedFromHost() {
         mHandler.removeCallbacks(mRefreshEndTime);
-        mHandler.removeCallbacks(mRefreshViewVisibility);
 
         closedCaptionsAction.removePopup();
         playbackSpeedAction.dismissPopup();
@@ -129,39 +114,7 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
         PlaybackTransportRowPresenter rowPresenter = new PlaybackTransportRowPresenter() {
             @Override
             protected RowPresenter.ViewHolder createRowViewHolder(ViewGroup parent) {
-                RowPresenter.ViewHolder vh = super.createRowViewHolder(parent);
-
-                ClockBehavior showClock = KoinJavaComponent.<UserPreferences>get(UserPreferences.class).get(UserPreferences.Companion.getClockBehavior());
-
-                if (showClock == ClockBehavior.ALWAYS || showClock == ClockBehavior.IN_VIDEO) {
-                    Context context = parent.getContext();
-                    mEndsText = new TextView(context);
-                    mEndsText.setTextAppearance(context, androidx.leanback.R.style.Widget_Leanback_PlaybackControlsTimeStyle);
-                    setEndTime();
-
-                    LinearLayout view = (LinearLayout) vh.view;
-
-                    PlaybackTransportRowView bar = (PlaybackTransportRowView) view.getChildAt(1);
-                    FrameLayout v = (FrameLayout) bar.getChildAt(0);
-                    mButtonRef = (LinearLayout) v.getChildAt(0);
-
-                    bar.removeViewAt(0);
-                    RelativeLayout rl = new RelativeLayout(context);
-                    RelativeLayout.LayoutParams rlp = new RelativeLayout.LayoutParams(
-                            RelativeLayout.LayoutParams.WRAP_CONTENT,
-                            RelativeLayout.LayoutParams.WRAP_CONTENT);
-                    rl.addView(v);
-
-                    RelativeLayout.LayoutParams rlp2 = new RelativeLayout.LayoutParams(
-                            RelativeLayout.LayoutParams.WRAP_CONTENT,
-                            RelativeLayout.LayoutParams.WRAP_CONTENT);
-                    rlp2.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
-                    rlp2.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-                    rl.addView(mEndsText, rlp2);
-                    bar.addView(rl, 0, rlp);
-                }
-
-                return vh;
+                return super.createRowViewHolder(parent);
             }
 
             @Override
@@ -307,6 +260,23 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
         }
     }
 
+    /**
+     * Injects the "ends at" label placed under the clock in the player's top panel. It is only
+     * shown when the clock is visible in the video player.
+     */
+    public void setEndsTextView(TextView view) {
+        mEndsText = view;
+        updateEndsTextVisibility();
+        setEndTime();
+    }
+
+    private void updateEndsTextVisibility() {
+        if (mEndsText == null) return;
+        ClockBehavior showClock = KoinJavaComponent.<UserPreferences>get(UserPreferences.class).get(UserPreferences.Companion.getClockBehavior());
+        boolean showEndsText = showClock == ClockBehavior.ALWAYS || showClock == ClockBehavior.IN_VIDEO;
+        mEndsText.setVisibility(showEndsText ? View.VISIBLE : View.GONE);
+    }
+
     private void setEndTime() {
         if (mEndsText == null || getPlayerAdapter().getDuration() < 1)
             return;
@@ -362,13 +332,6 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
             mHandler.removeCallbacks(mRefreshEndTime);
         }
 
-    }
-
-    public void setInjectedViewsVisibility() {
-        if (mButtonRef != null && mButtonRef.getVisibility() != mEndsText.getVisibility())
-            mEndsText.setVisibility(mButtonRef.getVisibility());
-        mHandler.removeCallbacks(mRefreshViewVisibility);
-        mHandler.postDelayed(mRefreshViewVisibility, 100);
     }
 
     @Override

@@ -311,6 +311,8 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
     private void prepareOverlayFragment() {
         leanbackOverlayFragment = (LeanbackOverlayFragment) getChildFragmentManager().findFragmentById(R.id.leanback_fragment);
         if (leanbackOverlayFragment != null) {
+            // The "ends at" label lives under the clock in the top panel, not in the transport bar.
+            leanbackOverlayFragment.getPlayerGlue().setEndsTextView(binding.endTime);
             leanbackOverlayFragment.initFromView(this);
             leanbackOverlayFragment.mediaInfoChanged();
             leanbackOverlayFragment.setOnKeyInterceptListener(keyListener);
@@ -609,12 +611,6 @@ public class CustomPlaybackOverlayFragment extends Fragment implements LiveTvGui
                     //and then manage our fade timer
                     if (mFadeEnabled) startFadeTimer();
                 }
-            }
-
-            switch (keyCode) {
-                case KeyEvent.KEYCODE_DPAD_LEFT:
-                case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    leanbackOverlayFragment.getPlayerGlue().setInjectedViewsVisibility();
             }
 
             return false;
