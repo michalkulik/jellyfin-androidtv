@@ -312,6 +312,10 @@
     <string name="lbl_always">Zawsze</string>
     <string name="pref_clock_display">Pokaż zegar</string>
     <string name="lbl_playback_control_ends">Koniec o %1$s</string>
+    <string name="lbl_playback_control_ends_in">Koniec za %1$s</string>
+    <string name="lbl_playback_control_duration_minutes">%1$d min</string>
+    <string name="lbl_playback_control_duration_hours">%1$d h</string>
+    <string name="lbl_playback_control_duration_hours_minutes">%1$d h %2$d min</string>
     <string name="login_help_description">Jellyfin wymaga serwera do połączenia. Odwiedź naszą dokumentację na docs.jellyfin.org, lub zeskanuj kod QR, aby rozpocząć pracę z Jellyfin.</string>
     <string name="login_help_title">Potrzebuję pomocy\?</string>
     <string name="connect_manually_by_address">Wprowadź adres serwera</string>

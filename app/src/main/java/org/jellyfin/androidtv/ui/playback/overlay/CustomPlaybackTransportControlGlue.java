@@ -39,11 +39,7 @@ import org.jellyfin.androidtv.ui.playback.overlay.action.SelectQualityAction;
 import org.jellyfin.androidtv.ui.playback.overlay.action.SkipNextAction;
 import org.jellyfin.androidtv.ui.playback.overlay.action.SkipPreviousAction;
 import org.jellyfin.androidtv.ui.playback.overlay.action.ZoomAction;
-import org.jellyfin.androidtv.util.DateTimeExtensionsKt;
 import org.koin.java.KoinJavaComponent;
-
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 
 public class CustomPlaybackTransportControlGlue extends PlaybackTransportControlGlue<VideoPlayerAdapter> {
 
@@ -281,10 +277,26 @@ public class CustomPlaybackTransportControlGlue extends PlaybackTransportControl
         if (mEndsText == null || getPlayerAdapter().getDuration() < 1)
             return;
         long msLeft = getPlayerAdapter().getDuration() - getPlayerAdapter().getCurrentPosition();
-        long realTimeLeft = round(msLeft / playbackController.getPlaybackSpeed());
+        long realTimeLeft = Math.max(0, round(msLeft / playbackController.getPlaybackSpeed()));
 
-        LocalDateTime endTime = LocalDateTime.now().plus(realTimeLeft, ChronoUnit.MILLIS);
-        mEndsText.setText(getContext().getString(R.string.lbl_playback_control_ends, DateTimeExtensionsKt.getTimeFormatter(getContext()).format(endTime)));
+        mEndsText.setText(getContext().getString(R.string.lbl_playback_control_ends_in, formatTimeLeft(realTimeLeft)));
+    }
+
+    /**
+     * Formats the remaining playback time as "45 min", "1 h" or "1 h 30 min". Rounds the minutes
+     * up so the label never shows "0 min" while something is still playing.
+     */
+    private String formatTimeLeft(long msLeft) {
+        long totalMinutes = (msLeft + 59_999) / 60_000;
+        if (totalMinutes < 60)
+            return getContext().getString(R.string.lbl_playback_control_duration_minutes, totalMinutes);
+
+        long hours = totalMinutes / 60;
+        long minutes = totalMinutes % 60;
+        if (minutes == 0)
+            return getContext().getString(R.string.lbl_playback_control_duration_hours, hours);
+
+        return getContext().getString(R.string.lbl_playback_control_duration_hours_minutes, hours, minutes);
     }
 
     private void notifyActionChanged(Action action) {
