@@ -21,12 +21,12 @@ published commits, invalidates the release tags and would need a force-push over
 
 The whole procedure is scripted:
 
-```powershell
+```bash
 # look first, change nothing
-.\scripts\sync-upstream.ps1 -DryRun
+./scripts/sync-upstream.sh --dry-run
 
 # then actually merge
-.\scripts\sync-upstream.ps1
+./scripts/sync-upstream.sh
 ```
 
 The script refuses to run with uncommitted changes, fetches `upstream`, prints how far the fork has
@@ -36,21 +36,21 @@ finally checks that the Jellykulik branding survived. It never pushes.
 
 Afterwards build and push by hand:
 
-```powershell
-.\gradlew.bat :app:compileDebugKotlin
+```bash
+./gradlew :app:compileDebugKotlin
 git push fork master
 ```
 
 If the merge went wrong, undo it and start over:
 
-```powershell
+```bash
 git merge --abort                                  # during the merge
 git reset --hard backup/before-upstream-merge      # after the merge commit
 ```
 
 Once you are happy with the result, drop the safety net:
 
-```powershell
+```bash
 git branch -D backup/before-upstream-merge
 git push fork --delete backup/before-upstream-merge
 ```
