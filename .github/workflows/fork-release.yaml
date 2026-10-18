@@ -6,10 +6,11 @@ name: Fork / Release
 # with a version. Only the signed release build is published, never the debug build.
 # Signing is required; without the signing secrets the workflow fails on purpose.
 
+# Releases are normally built and published locally with scripts/release-local.sh, so this
+# workflow is intentionally NOT triggered by tags any more: GitHub throttles Actions usage on
+# forks, and building locally once avoids building the same thing twice. It is kept as a
+# manual fallback — run it from the Actions tab and give a version.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:

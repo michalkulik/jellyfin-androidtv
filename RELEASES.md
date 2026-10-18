@@ -1,8 +1,9 @@
 # Releasing this fork
 
 This repository is a fork of [jellyfin/jellyfin-androidtv](https://github.com/jellyfin/jellyfin-androidtv).
-It publishes its own APK builds through GitHub releases using the
-[`Fork / Release`](.github/workflows/fork-release.yaml) workflow.
+It publishes its own signed APK builds through GitHub releases. Releases are built, signed and
+published locally with [`scripts/release-local.sh`](scripts/release-local.sh); the
+[`Fork / Release`](.github/workflows/fork-release.yaml) workflow is kept only as a manual fallback.
 
 ## Remotes
 
@@ -57,24 +58,25 @@ git push fork --delete backup/before-upstream-merge
 
 ## Publishing a new version
 
-1. Make sure your changes are committed and pushed to `master`:
+Releases are built, signed and published locally — one build, no GitHub Actions:
 
-   ```bash
-   git push fork master
-   ```
+```bash
+git push fork master
+./scripts/release-local.sh 0.2.21
+```
 
-2. Create and push a version tag (the `v` prefix is stripped from the app version):
+The script builds the signed release APK, writes `latest.json`, creates and pushes the `vX.Y.Z`
+tag, and publishes the GitHub release at `https://github.com/michalkulik/jellyfin-androidtv/releases`
+with both the APK and the manifest (creating the release if needed, updating it otherwise).
 
-   ```bash
-   git tag -a v0.1.0 -m "Jellykulik for Android TV 0.1.0"
-   git push fork v0.1.0
-   ```
+Signing credentials are read from the environment or from `../signing/github-secrets.txt`
+(`KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`), together with the keystore at
+`../signing/fork-release.jks`; override with the `KEYSTORE_FILE` / `KEYSTORE_PASSWORD` /
+`KEY_ALIAS` / `KEY_PASSWORD` environment variables.
 
-3. The workflow builds the APK and creates (or updates) the GitHub release at
-   `https://github.com/michalkulik/jellyfin-androidtv/releases`.
-
-You can also run the workflow manually from the **Actions** tab (*Fork / Release* → *Run workflow*)
-and provide a version number.
+The `Fork / Release` workflow still exists as a manual fallback (**Actions** → *Fork / Release* →
+*Run workflow*). It is deliberately no longer triggered by tags: GitHub throttles Actions usage on
+forks, and building locally once avoids building the same thing twice.
 
 ## Release notes
 
