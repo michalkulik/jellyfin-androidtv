@@ -2,8 +2,10 @@ package org.jellyfin.androidtv.update
 
 import android.content.Context
 import android.os.SystemClock
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -55,6 +57,14 @@ class UpdateDownloadWorker(
 		suspend fun start(context: Context, release: UpdateRelease) {
 			val request = OneTimeWorkRequestBuilder<UpdateDownloadWorker>().apply {
 				addTag(tag)
+
+				// Do not start (and stop) the download when there is no connection at all.
+				setConstraints(
+					Constraints.Builder()
+						.setRequiredNetworkType(NetworkType.CONNECTED)
+						.build()
+				)
+
 				setInputData(
 					workDataOf(
 						KEY_URL to release.url,
