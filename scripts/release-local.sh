@@ -114,6 +114,8 @@ VERSION_CODE=$(( $(echo "$CORE" | cut -d '.' -f 1) * 1000000 \
 	+ $(echo "$CORE" | cut -d '.' -f 3) * 100 \
 	+ ${PRE:-99} ))
 
+# Only the current build may end up in the release, so clear any previous artifacts first.
+rm -rf build/fork-release
 mkdir -p build/fork-release
 cp "$APK" "build/fork-release/$NAME"
 cat > build/fork-release/latest.json <<EOF
