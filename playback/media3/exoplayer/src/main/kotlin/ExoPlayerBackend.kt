@@ -305,6 +305,7 @@ class ExoPlayerBackend(
 	override fun stop() {
 		exoPlayer.stop()
 		currentStream = null
+		audioPipeline.release()
 	}
 
 	override fun seekTo(position: Duration) {
