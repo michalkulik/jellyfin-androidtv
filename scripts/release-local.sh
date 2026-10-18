@@ -29,8 +29,6 @@ REMOTE="${REMOTE:-fork}"
 BRANCH="${BRANCH:-master}"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.local/share/tools/android-sdk}}"
 JAVA_HOME="${JAVA_HOME:-$HOME/.local/share/tools/jdk21/jdk-21.0.12.1+1}"
-SECRETS_FILE="${SECRETS_FILE:-../signing/github-secrets.txt}"
-KEYSTORE_FILE="${KEYSTORE_FILE:-../signing/fork-release.jks}"
 KEY_ALIAS="${KEY_ALIAS:-jellyfin-fork}"
 
 VERSION="${1:-}"
@@ -40,7 +38,13 @@ if [ -z "$VERSION" ]; then
 fi
 TAG="v$VERSION"
 
-cd "$(git rev-parse --show-toplevel)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# The signing material lives next to the repositories, never inside them. Absolute paths are used
+# because Gradle resolves -Pkeystore.file relative to the app module, not the repository root.
+SECRETS_FILE="${SECRETS_FILE:-$REPO_ROOT/../signing/github-secrets.txt}"
+KEYSTORE_FILE="${KEYSTORE_FILE:-$REPO_ROOT/../signing/fork-release.jks}"
 
 # --- sanity -------------------------------------------------------------------------
 branch=$(git rev-parse --abbrev-ref HEAD)
